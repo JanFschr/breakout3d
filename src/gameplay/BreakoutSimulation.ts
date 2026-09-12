@@ -53,7 +53,8 @@ export class BreakoutSimulation {
 
   isEdgeUnlocked(face: FaceId, edge: FaceEdge): boolean {
     const config = this.level.edges.find((candidate) => candidate.face === face && candidate.edge === edge);
-    if (!config || config.requiredAnchors.length === 0) return true;
+    if (!config) return this.level.body.implicitTransitions !== false;
+    if (config.requiredAnchors.length === 0) return true;
     return config.requiredAnchors.every((anchorId) => this.findBlock(anchorId)?.destroyed === true);
   }
 

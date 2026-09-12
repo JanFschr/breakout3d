@@ -2,7 +2,7 @@ import './style.css';
 import { AudioDirector } from './audio/AudioDirector';
 import { APP_CONFIG } from './core/config';
 import { GameLoop } from './core/GameLoop';
-import { REACTOR_GARDEN_LEVEL } from './data/levels/reactorGarden';
+import { levelFromLocation, levelUrl, nextLevel } from './data/levels';
 import { DebugPanel } from './debug/DebugPanel';
 import { BreakoutSimulation } from './gameplay/BreakoutSimulation';
 import { GameplayEventBus } from './gameplay/GameplayEvents';
@@ -19,25 +19,32 @@ import { VfxDirector } from './vfx/VfxDirector';
 
 registerServiceWorker();
 
+const level = levelFromLocation(window.location.search);
+const followingLevel = nextLevel(level);
+document.title = `Breakout3D · ${level.displayName}`;
+
 const container = document.querySelector<HTMLElement>('#game');
 const status = document.querySelector<HTMLElement>('#status');
 const inspectButton = document.querySelector<HTMLButtonElement>('#inspect');
 const soundButton = document.querySelector<HTMLButtonElement>('#sound');
 const hapticsButton = document.querySelector<HTMLButtonElement>('#haptics');
 const results = document.querySelector<HTMLElement>('#results');
+const resultKicker = document.querySelector<HTMLElement>('#result-kicker');
 const resultTitle = document.querySelector<HTMLElement>('#result-title');
 const resultStars = document.querySelector<HTMLElement>('#result-stars');
 const resultDetails = document.querySelector<HTMLElement>('#result-details');
 const retryButton = document.querySelector<HTMLButtonElement>('#retry');
-if (!container || !status || !inspectButton || !soundButton || !hapticsButton || !results || !resultTitle || !resultStars || !resultDetails || !retryButton) {
+if (!container || !status || !inspectButton || !soundButton || !hapticsButton || !results || !resultKicker || !resultTitle || !resultStars || !resultDetails || !retryButton) {
   throw new Error('Missing required app container');
 }
 
+resultKicker.textContent = `${level.body.type.toUpperCase()} · ${level.displayName.toUpperCase()}`;
+
 const eventBus = new GameplayEventBus();
-const simulation = new BreakoutSimulation(APP_CONFIG.gameplay, REACTOR_GARDEN_LEVEL, eventBus);
-const mastery = new MasterySystem(REACTOR_GARDEN_LEVEL, eventBus);
+const simulation = new BreakoutSimulation(APP_CONFIG.gameplay, level, eventBus);
+const mastery = new MasterySystem(level, eventBus);
 const spatial = new SpatialRuntime(simulation, APP_CONFIG.gameplay, eventBus);
-const scene = new GameScene(container, simulation.state);
+const scene = new GameScene(container, simulation.state, level);
 const quality = new QualityManager();
 quality.apply(scene);
 const cameraDirector = new CameraDirector(scene);
@@ -102,7 +109,13 @@ inspectButton.addEventListener('click', () => {
 });
 soundButton.addEventListener('click', () => { audio.toggleEnabled(); updateSettingsButtons(); });
 hapticsButton.addEventListener('click', () => { audio.toggleHaptics(); updateSettingsButtons(); });
-retryButton.addEventListener('click', resetRun);
+retryButton.addEventListener('click', () => {
+  if (spatial.phase === 'RESULTS' && followingLevel) {
+    window.location.assign(levelUrl(followingLevel));
+    return;
+  }
+  resetRun();
+});
 window.addEventListener('keydown', (event) => {
   if (event.key.toLowerCase() === 'i' && !inspectButton.disabled) {
     if (spatial.phase === 'INSPECT') scene.resetInspect();
@@ -122,7 +135,7 @@ function handleResize(): void {
 function resetRun(): void {
   simulation.restart();
   spatial.reset();
-  mastery.reset(REACTOR_GARDEN_LEVEL.startFace);
+  mastery.reset(level.startFace);
   scene.resetInspect();
   scene.resetPresentation();
   cameraDirector.snap(spatial.getPresentationState());
@@ -145,14 +158,16 @@ function updateResults(): void {
     resultTitle.textContent = 'Run beendet';
     resultStars.textContent = '☆☆☆';
     resultDetails.textContent = `${mastery.state.score} Punkte · Combo ${mastery.state.comboPeak}`;
+    retryButton.textContent = 'Nochmal spielen';
     return;
   }
 
   const summary = mastery.summary(true, simulation.state.elapsedSeconds);
-  const result = evaluateStars(summary, REACTOR_GARDEN_LEVEL.scoring);
+  const result = evaluateStars(summary, level.scoring);
   resultTitle.textContent = 'Core zerlegt';
   resultStars.textContent = `${'★'.repeat(result.stars)}${'☆'.repeat(3 - result.stars)}`;
   resultDetails.textContent = `${simulation.state.elapsedSeconds.toFixed(1)} s · ${mastery.state.score} Punkte · Combo ${mastery.state.comboPeak} · Orbit ${mastery.state.orbitTier}`;
+  retryButton.textContent = followingLevel ? `Weiter: ${followingLevel.displayName}` : 'Nochmal spielen';
 }
 
 function statusText(edgeWindowProgress: number): string {
@@ -162,8 +177,8 @@ function statusText(edgeWindowProgress: number): string {
   if (spatial.phase === 'EDGE_RIDE') return `FLIP · ${spatial.activeFace.toUpperCase()} · Combo ${masteryState.comboStreak}`;
   if (spatial.phase === 'INSPECT') return `Inspect · ${spatial.activeFace.toUpperCase()} · Orbit ${masteryState.orbitTier}`;
   if (spatial.phase === 'CORE_KILL') return `CORE COLLAPSE · ${Math.round(spatial.getPresentationState().coreKillProgress * 100)}%`;
-  if (spatial.phase === 'RESULTS') return `${REACTOR_GARDEN_LEVEL.displayName} · Complete`;
+  if (spatial.phase === 'RESULTS') return `${level.displayName} · Complete`;
   if (spatial.phase === 'GAME_OVER') return `Game Over · ${masteryState.score} pts`;
   const overdrive = masteryState.fullOrbitActive ? ` · OVERDRIVE ${masteryState.fullOrbitRemaining.toFixed(1)}s` : '';
-  return `${spatial.activeFace.toUpperCase()} · ${state.lives} Leben · ${masteryState.score} · Combo ${masteryState.comboStreak} · Orbit ${masteryState.orbitTier}${overdrive}`;
+  return `${level.displayName} · ${spatial.activeFace.toUpperCase()} · ${state.lives} Leben · ${masteryState.score} · Combo ${masteryState.comboStreak} · Orbit ${masteryState.orbitTier}${overdrive}`;
 }

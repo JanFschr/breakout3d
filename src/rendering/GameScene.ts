@@ -3,9 +3,10 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { APP_CONFIG } from '../core/config';
+import type { LevelDefinition } from '../data/LevelDefinition';
 import type { SpatialPresentationState } from '../gameplay/SpatialRuntime';
 import type { BlockState, BreakoutState } from '../gameplay/contracts';
-import { FACE_GRAPH, FACE_IDS, localToBody, type FaceBasis, type FaceId, type Vec3Like } from '../world/FaceGraph';
+import { BODY_FACE_IDS, FACE_GRAPH, localToBody, type FaceBasis, type FaceId, type Vec3Like } from '../world/FaceGraph';
 import { BallTrail } from '../vfx/BallTrail';
 import { EdgeRail } from '../vfx/EdgeRail';
 import { createHeroBallMaterial, type HeroBallUniforms } from '../vfx/HeroBallMaterial';
@@ -13,10 +14,10 @@ import type { JuiceSnapshot } from '../vfx/JuiceDirector';
 
 const FACE_SIZE = 14;
 const Y_SCALE = FACE_SIZE / APP_CONFIG.gameplay.fieldHeight;
-const BASE_BACKGROUND = new THREE.Color(0x050a12);
-const PEAK_BACKGROUND = new THREE.Color(0x160d24);
-const ACTIVE_FACE_COLOR = 0x0b1724;
-const INACTIVE_FACE_COLOR = 0x071019;
+const CUBE_BACKGROUND = new THREE.Color(0x050a12);
+const CUBE_PEAK_BACKGROUND = new THREE.Color(0x160d24);
+const PYRAMID_BACKGROUND = new THREE.Color(0x09080d);
+const PYRAMID_PEAK_BACKGROUND = new THREE.Color(0x241309);
 const GAMEPLAY_TILT = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.035, 0.065, 0, 'XYZ'));
 
 export class GameScene {
@@ -29,21 +30,30 @@ export class GameScene {
   private readonly bloomPass: UnrealBloomPass;
   private readonly bodyRoot = new THREE.Group();
   private readonly blockMeshes = new Map<string, THREE.Mesh<THREE.BoxGeometry, THREE.MeshPhysicalMaterial>>();
-  private readonly facePanels = new Map<FaceId, THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>>();
+  private readonly facePanels = new Map<FaceId, THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhysicalMaterial>>();
   private readonly debugGroup = new THREE.Group();
   private readonly edgeRail = new EdgeRail();
   private readonly ballUniforms: HeroBallUniforms;
   private readonly ballTrail = new BallTrail();
   private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   private readonly backgroundColor = new THREE.Color();
-  private activeFace: FaceId = 'front';
+  private readonly faceIds: readonly FaceId[];
+  private readonly warmTheme: boolean;
+  private readonly baseBackground: THREE.Color;
+  private readonly peakBackground: THREE.Color;
+  private activeFace: FaceId;
   private inspectYaw = 0;
   private inspectPitch = 0;
   private visualTime = 0;
 
-  constructor(private readonly container: HTMLElement, state: BreakoutState) {
-    this.scene.background = this.backgroundColor.copy(BASE_BACKGROUND);
-    this.scene.fog = new THREE.Fog(0x050a12, 42, 96);
+  constructor(private readonly container: HTMLElement, state: BreakoutState, private readonly level: LevelDefinition) {
+    this.faceIds = BODY_FACE_IDS[level.body.type].filter((faceId) => level.faces[faceId]?.enabled);
+    this.warmTheme = level.body.type === 'pyramid';
+    this.baseBackground = this.warmTheme ? PYRAMID_BACKGROUND : CUBE_BACKGROUND;
+    this.peakBackground = this.warmTheme ? PYRAMID_PEAK_BACKGROUND : CUBE_PEAK_BACKGROUND;
+    this.activeFace = state.activeFace;
+    this.scene.background = this.backgroundColor.copy(this.baseBackground);
+    this.scene.fog = new THREE.Fog(this.baseBackground, 42, 96);
     this.camera.position.set(0, 0.7, 26);
     this.camera.lookAt(0, 0, 0);
 
@@ -60,28 +70,28 @@ export class GameScene {
     this.bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.12, 0.24, 0.82);
     this.composer.addPass(this.bloomPass);
 
-    this.scene.add(new THREE.HemisphereLight(0xbfeaff, 0x02050d, 0.78));
-    const key = new THREE.DirectionalLight(0xeaf8ff, 2.1);
+    this.scene.add(new THREE.HemisphereLight(this.warmTheme ? 0xffe3ad : 0xbfeaff, 0x02050d, 0.78));
+    const key = new THREE.DirectionalLight(this.warmTheme ? 0xfff1d0 : 0xeaf8ff, 2.1);
     key.position.set(-8, 12, 18);
     key.castShadow = true;
     this.scene.add(key);
 
-    const violetRim = new THREE.DirectionalLight(0x7866ff, 1.2);
-    violetRim.position.set(11, -5, 13);
-    this.scene.add(violetRim);
+    const rim = new THREE.DirectionalLight(this.warmTheme ? 0xff9c42 : 0x7866ff, 1.2);
+    rim.position.set(11, -5, 13);
+    this.scene.add(rim);
 
-    const cyanFill = new THREE.PointLight(0x32dfff, 0.6, 48, 2);
-    cyanFill.position.set(-11, 2, 13);
-    this.scene.add(cyanFill);
+    const fill = new THREE.PointLight(0x32dfff, this.warmTheme ? 0.8 : 0.6, 48, 2);
+    fill.position.set(-11, 2, 13);
+    this.scene.add(fill);
 
     this.scene.add(this.bodyRoot);
-    this.buildCubeShell();
+    this.buildBodyShell();
 
     this.paddle = new THREE.Mesh(
       new THREE.BoxGeometry(state.paddle.width, 0.62, Math.max(state.paddle.height * Y_SCALE * 1.65, 0.72)),
       new THREE.MeshPhysicalMaterial({
-        color: 0x596dff,
-        emissive: 0x2540ff,
+        color: this.warmTheme ? 0xffb44a : 0x596dff,
+        emissive: this.warmTheme ? 0xff7a1f : 0x2540ff,
         emissiveIntensity: 0.86,
         roughness: 0.12,
         metalness: 0.04,
@@ -103,7 +113,7 @@ export class GameScene {
     this.bodyRoot.add(this.ballTrail.object);
     this.bodyRoot.add(this.ball);
 
-    for (const faceId of FACE_IDS) {
+    for (const faceId of this.faceIds) {
       for (const block of state.faces[faceId].blocks) this.createBlockMesh(block);
     }
 
@@ -143,7 +153,7 @@ export class GameScene {
     const paddleX = lerp(state.paddle.previousX, state.paddle.x, alpha);
     const inspecting = spatial.phase === 'INSPECT';
 
-    this.backgroundColor.lerpColors(BASE_BACKGROUND, PEAK_BACKGROUND, clamp01(juice.intensity * 0.2 + juice.eventPulse * 0.08));
+    this.backgroundColor.lerpColors(this.baseBackground, this.peakBackground, clamp01(juice.intensity * 0.2 + juice.eventPulse * 0.08));
     this.bloomPass.strength = THREE.MathUtils.clamp(THREE.MathUtils.lerp(0.1, 0.62, juice.glow) + juice.eventPulse * 0.1, 0.08, 0.76);
     this.bloomPass.radius = THREE.MathUtils.lerp(0.16, 0.38, juice.intensity);
     this.renderer.toneMappingExposure = THREE.MathUtils.lerp(0.92, 1.04, juice.intensity);
@@ -166,7 +176,7 @@ export class GameScene {
 
     this.updateFacePanels(spatial.activeFace, inspecting, juice);
 
-    for (const faceId of FACE_IDS) {
+    for (const faceId of this.faceIds) {
       for (const block of state.faces[faceId].blocks) {
         const mesh = this.blockMeshes.get(block.id);
         if (!mesh) continue;
@@ -174,7 +184,7 @@ export class GameScene {
         mesh.visible = !block.destroyed && spatial.phase !== 'RESULTS';
         setBodyPosition(mesh, localToBody(faceId, block.position.x, centeredY(block.position.y), 0.3));
         mesh.quaternion.copy(meshQuaternionForFace(FACE_GRAPH[faceId]));
-        updateBlockMaterial(mesh, block, faceId === spatial.activeFace, inspecting, juice);
+        updateBlockMaterial(mesh, block, faceId === spatial.activeFace, inspecting, juice, this.warmTheme);
       }
     }
 
@@ -247,7 +257,7 @@ export class GameScene {
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(block.width * 0.98, blockThickness(block), Math.max(block.height * Y_SCALE * 1.08, 0.58), 2, 2, 2),
       new THREE.MeshPhysicalMaterial({
-        color: blockColor(block),
+        color: blockColor(block, this.warmTheme),
         roughness: hero ? 0.11 : 0.2,
         metalness: hero ? 0.04 : 0.02,
         clearcoat: hero ? 0.94 : 0.72,
@@ -266,47 +276,78 @@ export class GameScene {
     this.blockMeshes.set(block.id, mesh);
   }
 
+  private buildBodyShell(): void {
+    if (this.level.body.type === 'pyramid') this.buildPyramidShell();
+    else this.buildCubeShell();
+  }
+
   private buildCubeShell(): void {
-    for (const faceId of FACE_IDS) {
-      const basis = FACE_GRAPH[faceId];
-      const panel = new THREE.Mesh(
-        new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE, 20, 20),
-        new THREE.MeshPhysicalMaterial({
-          color: INACTIVE_FACE_COLOR,
-          emissive: 0x020711,
-          emissiveIntensity: 0.08,
-          transparent: true,
-          opacity: 0.14,
-          roughness: 0.34,
-          metalness: 0.02,
-          clearcoat: 0.58,
-          clearcoatRoughness: 0.2,
-          transmission: 0,
-          side: THREE.DoubleSide,
-          depthWrite: true,
-        }),
-      );
-      panel.receiveShadow = true;
-      setBodyPosition(panel, basis.origin);
-      panel.quaternion.copy(panelQuaternionForFace(basis));
-      this.bodyRoot.add(panel);
-      this.facePanels.set(faceId, panel);
-    }
+    for (const faceId of this.faceIds) this.addFacePanel(faceId, new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE, 20, 20));
     this.bodyRoot.add(new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(FACE_SIZE, FACE_SIZE, FACE_SIZE)),
       new THREE.LineBasicMaterial({ color: 0x2a6f88, transparent: true, opacity: 0.52 }),
     ));
   }
 
+  private buildPyramidShell(): void {
+    const slant = Math.hypot(12, 7);
+    for (const faceId of this.faceIds) {
+      const geometry = faceId === 'base'
+        ? new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE, 16, 16)
+        : triangleGeometry(FACE_SIZE, slant);
+      this.addFacePanel(faceId, geometry);
+    }
+
+    const apex = new THREE.Vector3(0, 7, 0);
+    const corners = [
+      new THREE.Vector3(-7, -5, -7), new THREE.Vector3(7, -5, -7),
+      new THREE.Vector3(7, -5, 7), new THREE.Vector3(-7, -5, 7),
+    ];
+    const edgePoints: THREE.Vector3[] = [];
+    for (let i = 0; i < corners.length; i += 1) {
+      edgePoints.push(corners[i], corners[(i + 1) % corners.length], corners[i], apex);
+    }
+    this.bodyRoot.add(new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(edgePoints),
+      new THREE.LineBasicMaterial({ color: 0xffb348, transparent: true, opacity: 0.58 }),
+    ));
+  }
+
+  private addFacePanel(faceId: FaceId, geometry: THREE.BufferGeometry): void {
+    const basis = FACE_GRAPH[faceId];
+    const panel = new THREE.Mesh(
+      geometry,
+      new THREE.MeshPhysicalMaterial({
+        color: this.warmTheme ? 0x171009 : 0x071019,
+        emissive: this.warmTheme ? 0x160900 : 0x020711,
+        emissiveIntensity: 0.08,
+        transparent: true,
+        opacity: 0.14,
+        roughness: 0.34,
+        metalness: 0.02,
+        clearcoat: 0.58,
+        clearcoatRoughness: 0.2,
+        transmission: 0,
+        side: THREE.DoubleSide,
+        depthWrite: true,
+      }),
+    );
+    panel.receiveShadow = true;
+    setBodyPosition(panel, basis.origin);
+    panel.quaternion.copy(panelQuaternionForFace(basis));
+    this.bodyRoot.add(panel);
+    this.facePanels.set(faceId, panel);
+  }
+
   private updateFacePanels(activeFace: FaceId, inspecting: boolean, juice: JuiceSnapshot): void {
-    for (const faceId of FACE_IDS) {
+    for (const faceId of this.faceIds) {
       const panel = this.facePanels.get(faceId);
       if (!panel) continue;
       const material = panel.material;
       const active = faceId === activeFace;
-      material.color.setHex(active ? ACTIVE_FACE_COLOR : INACTIVE_FACE_COLOR);
+      material.color.setHex(active ? (this.warmTheme ? 0x24170b : 0x0b1724) : (this.warmTheme ? 0x100b08 : 0x071019));
       material.opacity = active ? 0.99 : inspecting ? 0.4 : 0.12;
-      material.emissive.setHex(active ? 0x071a2b : 0x020711);
+      material.emissive.setHex(active ? (this.warmTheme ? 0x351600 : 0x071a2b) : 0x020711);
       material.emissiveIntensity = active ? THREE.MathUtils.lerp(0.1, 0.26, juice.glow) : 0.04;
       material.roughness = active ? 0.28 : 0.42;
       material.clearcoat = active ? 0.7 : 0.38;
@@ -325,7 +366,7 @@ export class GameScene {
       this.bodyRoot.quaternion.setFromEuler(new THREE.Euler(p * Math.PI * 1.5, p * Math.PI * 4.4, Math.sin(p * Math.PI) * 0.35));
     }
 
-    FACE_IDS.forEach((faceId, faceIndex) => {
+    this.faceIds.forEach((faceId, faceIndex) => {
       for (const block of state.faces[faceId].blocks) {
         if (block.destroyed) continue;
         const mesh = this.blockMeshes.get(block.id);
@@ -341,7 +382,7 @@ export class GameScene {
 
   private applyResultsPose(): void {
     this.bodyRoot.scale.setScalar(1);
-    this.bodyRoot.quaternion.setFromEuler(new THREE.Euler(0.34, 0.68, 0.08));
+    this.bodyRoot.quaternion.setFromEuler(new THREE.Euler(this.warmTheme ? 0.2 : 0.34, this.warmTheme ? 0.85 : 0.68, 0.08));
   }
 }
 
@@ -351,11 +392,12 @@ function updateBlockMaterial(
   active: boolean,
   inspecting: boolean,
   juice: JuiceSnapshot,
+  warmTheme: boolean,
 ): void {
   const material = mesh.material;
-  material.color.setHex(blockColor(block));
+  material.color.setHex(blockColor(block, warmTheme));
   material.opacity = active ? 1 : inspecting ? 0.55 : 0.12;
-  material.emissive.setHex(blockEmissive(block));
+  material.emissive.setHex(blockEmissive(block, warmTheme));
   material.emissiveIntensity = active
     ? blockEmissiveIntensity(block) * (0.78 + juice.glow * 0.55)
     : blockEmissiveIntensity(block) * (inspecting ? 0.2 : 0.05);
@@ -365,15 +407,22 @@ function updateBlockMaterial(
   material.depthWrite = active || inspecting;
 }
 
-function blockColor(block: BlockState): number {
-  if (block.type === 'armor') return block.armorMode === 'weakened' ? 0xff8a3d : 0xd657ff;
-  if (block.type === 'anchor') return 0x35d9e6;
-  if (block.type === 'generator') return 0xff4fae;
+function blockColor(block: BlockState, warmTheme: boolean): number {
+  if (block.type === 'armor') return block.armorMode === 'weakened' ? 0xff8a3d : warmTheme ? 0xd96a2f : 0xd657ff;
+  if (block.type === 'anchor') return warmTheme ? 0xffc34d : 0x35d9e6;
+  if (block.type === 'generator') return warmTheme ? 0x35d9e6 : 0xff4fae;
   if (block.type === 'chain') return 0xffd54a;
-  if (block.type === 'core') return block.exposed ? 0xffd85a : 0x526174;
-  return normalRowColor(block.position.y);
+  if (block.type === 'core') return block.exposed ? (warmTheme ? 0xfff0a0 : 0xffd85a) : 0x526174;
+  return normalRowColor(block.position.y, warmTheme);
 }
-function normalRowColor(y: number): number {
+function normalRowColor(y: number, warmTheme: boolean): number {
+  if (warmTheme) {
+    if (y >= 15) return 0xfff0a0;
+    if (y >= 13.5) return 0xffc247;
+    if (y >= 12) return 0xff843d;
+    if (y >= 10.5) return 0x45dfca;
+    return 0x4b8dff;
+  }
   if (y >= 15) return 0xff4b55;
   if (y >= 14) return 0xff8a3d;
   if (y >= 13) return 0xffd54a;
@@ -382,13 +431,13 @@ function normalRowColor(y: number): number {
   if (y >= 10) return 0x4b8dff;
   return 0x9a6bff;
 }
-function blockEmissive(block: BlockState): number {
-  if (block.type === 'normal') return normalRowColor(block.position.y);
-  if (block.type === 'generator') return 0xff2ea5;
-  if (block.type === 'anchor') return 0x20cfee;
+function blockEmissive(block: BlockState, warmTheme: boolean): number {
+  if (block.type === 'normal') return normalRowColor(block.position.y, warmTheme);
+  if (block.type === 'generator') return warmTheme ? 0x20cfee : 0xff2ea5;
+  if (block.type === 'anchor') return warmTheme ? 0xf5a51d : 0x20cfee;
   if (block.type === 'chain') return 0xf4ae18;
   if (block.type === 'core') return block.exposed ? 0xffb81f : 0x172337;
-  if (block.type === 'armor') return block.armorMode === 'weakened' ? 0xff6b2c : 0x7c35b8;
+  if (block.type === 'armor') return block.armorMode === 'weakened' ? 0xff6b2c : warmTheme ? 0x9b3f1c : 0x7c35b8;
   return 0x000000;
 }
 function blockEmissiveIntensity(block: BlockState): number {
@@ -411,6 +460,17 @@ function faceQuaternion(faceId: FaceId): THREE.Quaternion {
 }
 function presentationQuaternion(faceId: FaceId): THREE.Quaternion {
   return GAMEPLAY_TILT.clone().multiply(faceQuaternion(faceId));
+}
+function triangleGeometry(width: number, height: number): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    -width / 2, -height / 2, 0,
+    width / 2, -height / 2, 0,
+    0, height / 2, 0,
+  ], 3));
+  geometry.setIndex([0, 1, 2]);
+  geometry.computeVertexNormals();
+  return geometry;
 }
 function bezierRide(start: Vec3Like, end: Vec3Like, t: number): Vec3Like {
   const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2, z: (start.z + end.z) / 2 };
