@@ -16,6 +16,7 @@ const BASE_BACKGROUND = new THREE.Color(0x050a12);
 const PEAK_BACKGROUND = new THREE.Color(0x160d24);
 const ACTIVE_FACE_COLOR = 0x0b1724;
 const INACTIVE_FACE_COLOR = 0x071019;
+const GAMEPLAY_TILT = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.035, 0.065, 0, 'XYZ'));
 
 export class GameScene {
   readonly scene = new THREE.Scene();
@@ -179,9 +180,9 @@ export class GameScene {
     if (spatial.phase === 'EDGE_RIDE' && spatial.ride) {
       const progress = smoothstep(spatial.ride.progress);
       setBodyPosition(this.ball, bezierRide(spatial.ride.sourceBodyPoint, spatial.ride.destinationBodyPoint, progress));
-      this.bodyRoot.quaternion.copy(faceQuaternion(spatial.ride.sourceFace)).slerp(faceQuaternion(spatial.ride.destinationFace), progress);
+      this.bodyRoot.quaternion.copy(presentationQuaternion(spatial.ride.sourceFace)).slerp(presentationQuaternion(spatial.ride.destinationFace), progress);
     } else if (spatial.phase === 'INSPECT') {
-      const target = faceQuaternion(spatial.activeFace);
+      const target = presentationQuaternion(spatial.activeFace);
       const inspect = new THREE.Quaternion().setFromEuler(new THREE.Euler(this.inspectPitch, this.inspectYaw, 0, 'YXZ'));
       this.bodyRoot.quaternion.copy(inspect.multiply(target));
     } else if (spatial.phase === 'CORE_KILL') {
@@ -190,10 +191,6 @@ export class GameScene {
       this.applyResultsPose();
     } else {
       this.setBodyFaceOrientation(spatial.activeFace);
-      this.camera.position.z = THREE.MathUtils.lerp(this.camera.position.z, 26, 0.16);
-      this.camera.position.x = THREE.MathUtils.lerp(this.camera.position.x, 0, 0.16);
-      this.camera.position.y = THREE.MathUtils.lerp(this.camera.position.y, 0.7, 0.16);
-      this.camera.lookAt(0, 0, 0);
     }
 
     if (this.ball.visible) this.ballTrail.push(this.ball.position, juice.trail);
@@ -212,8 +209,6 @@ export class GameScene {
 
   resetPresentation(): void {
     this.ballTrail.clear();
-    this.camera.position.set(0, 0.7, 26);
-    this.camera.lookAt(0, 0, 0);
     this.bodyRoot.scale.setScalar(1);
     this.ball.visible = true;
     this.paddle.visible = true;
@@ -314,7 +309,7 @@ export class GameScene {
     }
   }
 
-  private setBodyFaceOrientation(faceId: FaceId): void { this.bodyRoot.quaternion.copy(faceQuaternion(faceId)); }
+  private setBodyFaceOrientation(faceId: FaceId): void { this.bodyRoot.quaternion.copy(presentationQuaternion(faceId)); }
 
   private updateEdgeWindow(edge: FaceEdge | null, progress: number, juice: JuiceSnapshot): void {
     if (!edge) { this.edgeMaterial.opacity = 0; return; }
@@ -328,13 +323,9 @@ export class GameScene {
     const p = smoothstep(progress);
     if (this.reducedMotion) {
       this.bodyRoot.quaternion.setFromEuler(new THREE.Euler(0.2, p * Math.PI * 0.8, 0.08));
-      this.camera.position.z = 29;
     } else {
       this.bodyRoot.quaternion.setFromEuler(new THREE.Euler(p * Math.PI * 1.5, p * Math.PI * 4.4, Math.sin(p * Math.PI) * 0.35));
-      this.camera.position.z = 26 + Math.sin(p * Math.PI) * 6;
-      this.camera.position.y = 0.7 + Math.sin(p * Math.PI * 2) * 0.7;
     }
-    this.camera.lookAt(0, 0, 0);
 
     FACE_IDS.forEach((faceId, faceIndex) => {
       for (const block of state.faces[faceId].blocks) {
@@ -352,8 +343,6 @@ export class GameScene {
 
   private applyResultsPose(): void {
     this.bodyRoot.quaternion.setFromEuler(new THREE.Euler(0.34, 0.68, 0.08));
-    this.camera.position.set(0, 0.9, 31);
-    this.camera.lookAt(0, 0, 0);
   }
 }
 
@@ -420,6 +409,9 @@ function meshQuaternionForFace(basis: FaceBasis): THREE.Quaternion {
 function faceQuaternion(faceId: FaceId): THREE.Quaternion {
   const basis = FACE_GRAPH[faceId];
   return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(vec3(basis.u), vec3(basis.v), vec3(basis.normal))).invert();
+}
+function presentationQuaternion(faceId: FaceId): THREE.Quaternion {
+  return GAMEPLAY_TILT.clone().multiply(faceQuaternion(faceId));
 }
 function edgePoints(edge: FaceEdge, half: number): [[number, number], [number, number]] {
   if (edge === 'left') return [[-half, -half], [-half, half]];
