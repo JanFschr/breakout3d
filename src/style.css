@@ -2,47 +2,74 @@
 
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #163347;
-  background: #eafcff;
+  color: #f4f8ff;
+  background: #050a12;
   font-synthesis: none;
   touch-action: none;
 }
 
 html, body, main { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-body { min-width: 320px; min-height: 100dvh; }
-main { position: relative; }
+body { min-width: 320px; min-height: 100dvh; background: #050a12; }
+main { position: relative; background: #050a12; }
 #game { position: absolute; inset: 0; }
 #game canvas { display: block; width: 100%; height: 100%; }
 
 .hud {
   position: absolute;
   z-index: 4;
-  top: max(14px, env(safe-area-inset-top));
-  left: max(16px, env(safe-area-inset-left));
-  right: max(16px, env(safe-area-inset-right));
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
+  top: max(8px, env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+  right: max(10px, env(safe-area-inset-right));
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
   pointer-events: none;
 }
-.hud h1 { margin: 0; font-size: clamp(14px, 3.8vw, 22px); letter-spacing: .12em; font-weight: 850; white-space: nowrap; }
-.hud h1 span { color: #7062ff; }
-.hud p { margin: 0; font-size: clamp(10px, 2.7vw, 14px); font-weight: 680; opacity: .75; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hud-actions { display: flex; gap: 5px; pointer-events: auto; }
-.hud button {
-  border: 1px solid rgb(62 132 156 / 25%);
-  border-radius: 999px;
-  padding: 7px 9px;
-  background: rgb(255 255 255 / 68%);
-  color: #244b61;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 750;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+.hud-brand { min-width: 0; padding: 2px 0 0; }
+.hud h1 {
+  margin: 0;
+  color: #f7fbff;
+  font-size: clamp(12px, 3.4vw, 18px);
+  line-height: 1;
+  letter-spacing: .12em;
+  font-weight: 880;
+  white-space: nowrap;
+  text-shadow: 0 0 18px rgb(77 185 255 / 20%);
 }
-.hud button[aria-pressed="true"] { background: rgb(255 255 255 / 84%); box-shadow: 0 3px 16px rgb(82 179 219 / 14%); }
+.hud h1 span { color: #8876ff; }
+.hud p {
+  margin: 5px 0 0;
+  max-width: min(48vw, 260px);
+  color: #8fa8bb;
+  font-size: clamp(8px, 2.25vw, 11px);
+  line-height: 1.2;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-actions { display: flex; flex: 0 0 auto; gap: 4px; pointer-events: auto; }
+.hud button {
+  min-height: 28px;
+  border: 1px solid rgb(112 184 225 / 24%);
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: rgb(8 21 33 / 72%);
+  color: #d8edfa;
+  font: inherit;
+  font-size: clamp(8px, 2.05vw, 10px);
+  font-weight: 760;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%), 0 5px 20px rgb(0 0 0 / 18%);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+.hud button[aria-pressed="true"] {
+  border-color: rgb(116 209 255 / 36%);
+  background: rgb(11 35 52 / 84%);
+  color: #f5fbff;
+  box-shadow: 0 0 18px rgb(56 175 255 / 12%);
+}
 .hud button:disabled { opacity: .35; }
 
 .results-card {
@@ -53,20 +80,30 @@ main { position: relative; }
   width: min(88vw, 390px);
   transform: translateX(-50%);
   padding: 22px 20px 18px;
-  border: 1px solid rgb(255 255 255 / 78%);
+  border: 1px solid rgb(129 197 238 / 24%);
   border-radius: 24px;
   text-align: center;
-  background: linear-gradient(145deg, rgb(255 255 255 / 84%), rgb(228 247 255 / 68%));
-  box-shadow: 0 18px 60px rgb(75 113 151 / 20%);
-  backdrop-filter: blur(24px) saturate(1.25);
-  -webkit-backdrop-filter: blur(24px) saturate(1.25);
+  color: #f7fbff;
+  background: linear-gradient(145deg, rgb(10 27 42 / 92%), rgb(12 18 34 / 88%));
+  box-shadow: 0 18px 60px rgb(0 0 0 / 42%), inset 0 1px 0 rgb(255 255 255 / 5%);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
 }
 .results-card[hidden] { display: none; }
-.result-kicker { margin: 0; font-size: 10px; letter-spacing: .18em; font-weight: 850; opacity: .55; }
+.result-kicker { margin: 0; color: #80a5bc; font-size: 10px; letter-spacing: .18em; font-weight: 850; }
 .results-card h2 { margin: 5px 0 0; font-size: 25px; }
-.result-stars { margin: 5px 0 4px; font-size: 34px; letter-spacing: .06em; color: #f4ae36; text-shadow: 0 3px 18px rgb(255 191 60 / 34%); }
-.results-card p:not(.result-kicker) { margin: 5px 0 15px; font-size: 12px; line-height: 1.5; opacity: .76; }
-.results-card button { border: 0; border-radius: 999px; padding: 11px 19px; background: #695dff; color: white; font: inherit; font-weight: 780; box-shadow: 0 8px 24px rgb(105 93 255 / 30%); }
+.result-stars { margin: 5px 0 4px; font-size: 34px; letter-spacing: .06em; color: #ffd54a; text-shadow: 0 0 22px rgb(255 193 61 / 32%); }
+.results-card p:not(.result-kicker) { margin: 5px 0 15px; color: #a9becd; font-size: 12px; line-height: 1.5; }
+.results-card button {
+  border: 1px solid rgb(154 137 255 / 28%);
+  border-radius: 999px;
+  padding: 11px 19px;
+  background: linear-gradient(135deg, #6f63ff, #4b7dff);
+  color: white;
+  font: inherit;
+  font-weight: 780;
+  box-shadow: 0 8px 24px rgb(84 89 255 / 28%);
+}
 
 .debug-panel {
   position: fixed;
@@ -75,8 +112,9 @@ main { position: relative; }
   bottom: max(8px, env(safe-area-inset-bottom));
   width: 190px;
   padding: 10px;
+  border: 1px solid rgb(109 188 224 / 16%);
   border-radius: 12px;
-  background: rgb(5 26 38 / 82%);
+  background: rgb(3 14 24 / 88%);
   color: #e5fbff;
   backdrop-filter: blur(12px);
   font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -86,9 +124,16 @@ main { position: relative; }
 .debug-panel button { width: 100%; margin-top: 4px; border: 0; border-radius: 7px; padding: 6px 8px; cursor: pointer; }
 
 @media (max-width: 430px) {
-  .hud { gap: 6px; left: 10px; right: 10px; }
-  .hud-actions button { padding: 6px 7px; font-size: 9px; }
-  .hud h1 { font-size: 13px; }
+  .hud { gap: 6px; left: 8px; right: 8px; }
+  .hud h1 { font-size: 12px; }
+  .hud p { max-width: 43vw; font-size: 8px; }
+  .hud-actions { gap: 3px; }
+  .hud-actions button { min-height: 26px; padding: 4px 6px; font-size: 8px; }
+}
+
+@media (max-width: 360px) {
+  .hud h1 { font-size: 11px; }
+  .hud-actions button { padding-inline: 5px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
