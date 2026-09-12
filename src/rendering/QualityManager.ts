@@ -38,6 +38,8 @@ export class QualityManager {
   private sampleSize = 0;
   private reevaluateElapsed = 0;
   private readonly baseTransmission = new WeakMap<THREE.Material, number>();
+  private readonly baseCastShadow = new WeakMap<THREE.Object3D, boolean>();
+  private readonly baseReceiveShadow = new WeakMap<THREE.Object3D, boolean>();
 
   get profile(): QualityProfile {
     return PROFILES[this.override ?? this.automaticTier];
@@ -61,7 +63,11 @@ export class QualityManager {
 
     scene.getBodyRoot().traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
-      object.castShadow = profile.shadows && object.castShadow;
+      if (!this.baseCastShadow.has(object)) this.baseCastShadow.set(object, object.castShadow);
+      if (!this.baseReceiveShadow.has(object)) this.baseReceiveShadow.set(object, object.receiveShadow);
+      object.castShadow = profile.shadows && (this.baseCastShadow.get(object) ?? false);
+      object.receiveShadow = profile.shadows && (this.baseReceiveShadow.get(object) ?? false);
+
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of materials) {
         if (!(material instanceof THREE.MeshPhysicalMaterial)) continue;
