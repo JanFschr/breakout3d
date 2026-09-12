@@ -84,12 +84,16 @@ export class EdgeRail {
     }
 
     this.object.visible = true;
-    const [a, b] = edgePoints(edge);
+    const [a, b] = edgePoints(faceId, edge);
     setVector(this.start, localToBody(faceId, a[0], a[1], 0.58));
     setVector(this.end, localToBody(faceId, b[0], b[1], 0.58));
     this.midpoint.copy(this.start).add(this.end).multiplyScalar(0.5);
     this.direction.copy(this.end).sub(this.start);
     const length = this.direction.length();
+    if (length < 1e-4) {
+      this.object.visible = false;
+      return;
+    }
     this.direction.normalize();
 
     this.object.position.copy(this.midpoint);
@@ -108,11 +112,21 @@ export class EdgeRail {
   }
 }
 
-function edgePoints(edge: FaceEdge): [[number, number], [number, number]] {
+function edgePoints(faceId: FaceId, edge: FaceEdge): [[number, number], [number, number]] {
+  if (isPyramidSide(faceId)) {
+    if (edge === 'left') return [[-FACE_HALF, -FACE_HALF], [0, FACE_HALF]];
+    if (edge === 'right') return [[FACE_HALF, -FACE_HALF], [0, FACE_HALF]];
+    if (edge === 'bottom') return [[-FACE_HALF, -FACE_HALF], [FACE_HALF, -FACE_HALF]];
+    return [[0, FACE_HALF], [0, FACE_HALF]];
+  }
   if (edge === 'left') return [[-FACE_HALF, -FACE_HALF], [-FACE_HALF, FACE_HALF]];
   if (edge === 'right') return [[FACE_HALF, -FACE_HALF], [FACE_HALF, FACE_HALF]];
   if (edge === 'top') return [[-FACE_HALF, FACE_HALF], [FACE_HALF, FACE_HALF]];
   return [[-FACE_HALF, -FACE_HALF], [FACE_HALF, -FACE_HALF]];
+}
+
+function isPyramidSide(faceId: FaceId): boolean {
+  return faceId === 'north' || faceId === 'east' || faceId === 'south' || faceId === 'west';
 }
 
 function setVector(target: THREE.Vector3, value: Vec3Like): void {

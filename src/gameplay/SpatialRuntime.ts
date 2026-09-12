@@ -1,11 +1,13 @@
 import type { GameplayTuning } from '../core/config';
 import type { InputSnapshot } from '../input/InputController';
+import { nudgeBallInsidePlayfield } from '../physics/FacePlayfield';
 import {
   bodyToLocal,
   destinationForEdge,
   localToBody,
   reciprocalEdge,
   transferVelocity,
+  type BodyType,
   type FaceEdge,
   type FaceId,
   type Vec3Like,
@@ -166,7 +168,7 @@ export class SpatialRuntime {
     const destLocal = bodyToLocal(destination, sourceBodyPoint);
     const destEdge = reciprocalEdge(this.activeFace, destination);
     const position = { x: destLocal.u, y: destLocal.v / yScale + this.tuning.fieldHeight / 2 };
-    nudgeInside(position, destEdge, this.tuning);
+    nudgeBallInsidePlayfield(bodyTypeForFace(destination), destination, destEdge, position, this.tuning);
     const transferred = transferVelocity(this.activeFace, destination, { x: hit.velocity.x, y: hit.velocity.y * yScale });
     const velocity = { x: transferred.x, y: transferred.y / yScale };
     this.destinationFace = destination;
@@ -208,17 +210,18 @@ function classifyFlip(normalizedTime: number): FlipRating {
   if (normalizedTime >= 0.15 && normalizedTime <= 0.82) return 'good';
   return 'normal';
 }
+
 function gestureCommitsEdge(edge: FaceEdge, deltaX: number, deltaY: number): boolean {
   if (edge === 'left') return deltaX <= -SWIPE_THRESHOLD;
   if (edge === 'right') return deltaX >= SWIPE_THRESHOLD;
   if (edge === 'top') return deltaY <= -SWIPE_THRESHOLD;
   return deltaY >= SWIPE_THRESHOLD;
 }
-function nudgeInside(position: { x: number; y: number }, edge: FaceEdge, tuning: GameplayTuning): void {
-  const inset = 0.08;
-  if (edge === 'left') position.x = -tuning.fieldWidth / 2 + tuning.ballRadius + inset;
-  if (edge === 'right') position.x = tuning.fieldWidth / 2 - tuning.ballRadius - inset;
-  if (edge === 'top') position.y = tuning.fieldHeight - tuning.ballRadius - inset;
-  if (edge === 'bottom') position.y = tuning.ballRadius + inset;
+
+function bodyTypeForFace(faceId: FaceId): BodyType {
+  return faceId === 'base' || faceId === 'north' || faceId === 'east' || faceId === 'south' || faceId === 'west'
+    ? 'pyramid'
+    : 'cube';
 }
+
 function clamp01(value: number): number { return Math.max(0, Math.min(1, value)); }
