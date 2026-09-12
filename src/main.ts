@@ -14,6 +14,7 @@ import { registerServiceWorker } from './pwa/registerServiceWorker';
 import { CameraDirector } from './rendering/CameraDirector';
 import { GameScene } from './rendering/GameScene';
 import { QualityManager } from './rendering/QualityManager';
+import { PlaytestMetrics } from './telemetry/PlaytestMetrics';
 import { JuiceDirector } from './vfx/JuiceDirector';
 import { VfxDirector } from './vfx/VfxDirector';
 
@@ -29,7 +30,8 @@ const resultTitle = document.querySelector<HTMLElement>('#result-title');
 const resultStars = document.querySelector<HTMLElement>('#result-stars');
 const resultDetails = document.querySelector<HTMLElement>('#result-details');
 const retryButton = document.querySelector<HTMLButtonElement>('#retry');
-if (!container || !status || !inspectButton || !soundButton || !hapticsButton || !results || !resultTitle || !resultStars || !resultDetails || !retryButton) {
+const metricsExportButton = document.querySelector<HTMLButtonElement>('#metrics-export');
+if (!container || !status || !inspectButton || !soundButton || !hapticsButton || !results || !resultTitle || !resultStars || !resultDetails || !retryButton || !metricsExportButton) {
   throw new Error('Missing required app container');
 }
 
@@ -40,6 +42,10 @@ const spatial = new SpatialRuntime(simulation, APP_CONFIG.gameplay, eventBus);
 const scene = new GameScene(container, simulation.state);
 const quality = new QualityManager();
 quality.apply(scene);
+const params = new URLSearchParams(window.location.search);
+const metricsEnabled = params.has('metrics') || params.has('debug');
+const playtestMetrics = new PlaytestMetrics(metricsEnabled, REACTOR_GARDEN_LEVEL.id, REACTOR_GARDEN_LEVEL.startFace, eventBus);
+metricsExportButton.hidden = !metricsEnabled;
 const cameraDirector = new CameraDirector(scene);
 const juice = new JuiceDirector(mastery, eventBus);
 const vfx = new VfxDirector(scene.getBodyRoot(), eventBus, (blockId) => scene.getBlockBodyPosition(blockId));
@@ -64,6 +70,17 @@ const loop = new GameLoop({
     const presentation = spatial.getPresentationState();
     const rawJuice = juice.getSnapshot();
     quality.update(frameDeltaSeconds, scene);
+    const qualityMetrics = quality.metrics();
+    playtestMetrics.update({
+      frameDeltaSeconds,
+      phase: presentation.phase,
+      activeFace: presentation.activeFace,
+      elapsedSeconds: simulation.state.elapsedSeconds,
+      score: mastery.state.score,
+      comboPeak: mastery.state.comboPeak,
+      orbitTier: mastery.state.orbitTier,
+      quality: qualityMetrics,
+    });
     const visualJuice = quality.visualJuice(rawJuice);
     vfx.update(frameDeltaSeconds, visualJuice);
     scene.sync(simulation.state, alpha, presentation, visualJuice, frameDeltaSeconds);
@@ -74,6 +91,8 @@ const loop = new GameLoop({
     inspectButton.setAttribute('aria-pressed', String(spatial.phase === 'INSPECT'));
     inspectButton.textContent = spatial.phase === 'INSPECT' ? 'Resume' : 'Inspect';
     inspectButton.disabled = spatial.phase === 'CORE_KILL' || spatial.phase === 'RESULTS' || spatial.phase === 'GAME_OVER';
+    if (spatial.phase === 'RESULTS') playtestMetrics.finish('clear');
+    if (spatial.phase === 'GAME_OVER') playtestMetrics.finish('fail');
     updateResults();
     debug.update(frameDeltaSeconds, loop.getMetrics());
   },
@@ -103,6 +122,7 @@ inspectButton.addEventListener('click', () => {
 soundButton.addEventListener('click', () => { audio.toggleEnabled(); updateSettingsButtons(); });
 hapticsButton.addEventListener('click', () => { audio.toggleHaptics(); updateSettingsButtons(); });
 retryButton.addEventListener('click', resetRun);
+metricsExportButton.addEventListener('click', () => playtestMetrics.download());
 window.addEventListener('keydown', (event) => {
   if (event.key.toLowerCase() === 'i' && !inspectButton.disabled) {
     if (spatial.phase === 'INSPECT') scene.resetInspect();
@@ -123,6 +143,7 @@ function resetRun(): void {
   simulation.restart();
   spatial.reset();
   mastery.reset(REACTOR_GARDEN_LEVEL.startFace);
+  playtestMetrics.reset(REACTOR_GARDEN_LEVEL.startFace);
   scene.resetInspect();
   scene.resetPresentation();
   cameraDirector.snap(spatial.getPresentationState());
