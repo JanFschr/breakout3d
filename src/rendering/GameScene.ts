@@ -5,8 +5,9 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { APP_CONFIG } from '../core/config';
 import type { SpatialPresentationState } from '../gameplay/SpatialRuntime';
 import type { BlockState, BreakoutState } from '../gameplay/contracts';
-import { FACE_GRAPH, FACE_IDS, localToBody, type FaceBasis, type FaceEdge, type FaceId, type Vec3Like } from '../world/FaceGraph';
+import { FACE_GRAPH, FACE_IDS, localToBody, type FaceBasis, type FaceId, type Vec3Like } from '../world/FaceGraph';
 import { BallTrail } from '../vfx/BallTrail';
+import { EdgeRail } from '../vfx/EdgeRail';
 import { createHeroBallMaterial, type HeroBallUniforms } from '../vfx/HeroBallMaterial';
 import type { JuiceSnapshot } from '../vfx/JuiceDirector';
 
@@ -30,9 +31,7 @@ export class GameScene {
   private readonly blockMeshes = new Map<string, THREE.Mesh<THREE.BoxGeometry, THREE.MeshPhysicalMaterial>>();
   private readonly facePanels = new Map<FaceId, THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>>();
   private readonly debugGroup = new THREE.Group();
-  private readonly edgeGeometry = new THREE.BufferGeometry();
-  private readonly edgeMaterial = new THREE.LineBasicMaterial({ color: 0x42d7ff, transparent: true, opacity: 0 });
-  private readonly edgeLine = new THREE.Line(this.edgeGeometry, this.edgeMaterial);
+  private readonly edgeRail = new EdgeRail();
   private readonly ballUniforms: HeroBallUniforms;
   private readonly ballTrail = new BallTrail();
   private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -108,7 +107,7 @@ export class GameScene {
       for (const block of state.faces[faceId].blocks) this.createBlockMesh(block);
     }
 
-    this.bodyRoot.add(this.edgeLine);
+    this.bodyRoot.add(this.edgeRail.object);
     this.bodyRoot.add(this.debugGroup);
     this.setBodyFaceOrientation(state.activeFace);
     this.resize();
@@ -148,6 +147,11 @@ export class GameScene {
     this.bloomPass.strength = THREE.MathUtils.clamp(THREE.MathUtils.lerp(0.1, 0.62, juice.glow) + juice.eventPulse * 0.1, 0.08, 0.76);
     this.bloomPass.radius = THREE.MathUtils.lerp(0.16, 0.38, juice.intensity);
     this.renderer.toneMappingExposure = THREE.MathUtils.lerp(0.92, 1.04, juice.intensity);
+    if (spatial.phase === 'CORE_KILL') {
+      const climax = Math.sin(spatial.coreKillProgress * Math.PI);
+      this.bloomPass.strength = Math.max(this.bloomPass.strength, 0.34 + climax * 0.46);
+      this.renderer.toneMappingExposure += climax * 0.055;
+    }
 
     this.ballUniforms.time.value = this.visualTime;
     this.ballUniforms.energy.value = juice.intensity;
@@ -158,7 +162,7 @@ export class GameScene {
     setBodyPosition(this.paddle, localToBody(spatial.activeFace, paddleX, centeredY(state.paddle.y), 0.31));
     this.paddle.quaternion.copy(meshQuaternionForFace(activeBasis));
     this.paddle.rotateZ(THREE.MathUtils.clamp(-state.paddle.velocityX * 0.012, -0.11, 0.11));
-    (this.paddle.material as THREE.MeshPhysicalMaterial).emissiveIntensity = THREE.MathUtils.lerp(0.74, 1.28, juice.glow);
+    (this.paddle.material as THREE.MeshPhysicalMaterial).emissiveIntensity = THREE.MathUtils.lerp(0.74, 1.28, juice.glow) + juice.eventPulse * 0.18;
 
     this.updateFacePanels(spatial.activeFace, inspecting, juice);
 
@@ -191,10 +195,11 @@ export class GameScene {
       this.applyResultsPose();
     } else {
       this.setBodyFaceOrientation(spatial.activeFace);
+      this.bodyRoot.scale.setScalar(1);
     }
 
     if (this.ball.visible) this.ballTrail.push(this.ball.position, juice.trail);
-    this.updateEdgeWindow(spatial.edgeWindow, spatial.edgeWindowProgress, juice);
+    this.edgeRail.update(spatial.activeFace, spatial.edgeWindow, spatial.edgeWindowProgress, juice, this.visualTime);
   }
 
   applyInspectDrag(deltaX: number, deltaY: number): void {
@@ -311,16 +316,9 @@ export class GameScene {
 
   private setBodyFaceOrientation(faceId: FaceId): void { this.bodyRoot.quaternion.copy(presentationQuaternion(faceId)); }
 
-  private updateEdgeWindow(edge: FaceEdge | null, progress: number, juice: JuiceSnapshot): void {
-    if (!edge) { this.edgeMaterial.opacity = 0; return; }
-    const half = FACE_SIZE / 2;
-    this.edgeGeometry.setFromPoints(edgePoints(edge, half).map(([u, v]) => vec3(localToBody(this.activeFace, u, v, 0.55))));
-    this.edgeMaterial.opacity = 0.56 + Math.sin(progress * Math.PI * 5) * 0.2 + juice.glow * 0.14;
-    this.edgeMaterial.color.setHSL(THREE.MathUtils.lerp(0.52, 0.78, juice.intensity), 0.96, 0.68);
-  }
-
   private applyCoreKill(progress: number, state: BreakoutState): void {
     const p = smoothstep(progress);
+    this.bodyRoot.scale.setScalar(1 + Math.sin(p * Math.PI) * (this.reducedMotion ? 0.018 : 0.048));
     if (this.reducedMotion) {
       this.bodyRoot.quaternion.setFromEuler(new THREE.Euler(0.2, p * Math.PI * 0.8, 0.08));
     } else {
@@ -342,6 +340,7 @@ export class GameScene {
   }
 
   private applyResultsPose(): void {
+    this.bodyRoot.scale.setScalar(1);
     this.bodyRoot.quaternion.setFromEuler(new THREE.Euler(0.34, 0.68, 0.08));
   }
 }
@@ -412,12 +411,6 @@ function faceQuaternion(faceId: FaceId): THREE.Quaternion {
 }
 function presentationQuaternion(faceId: FaceId): THREE.Quaternion {
   return GAMEPLAY_TILT.clone().multiply(faceQuaternion(faceId));
-}
-function edgePoints(edge: FaceEdge, half: number): [[number, number], [number, number]] {
-  if (edge === 'left') return [[-half, -half], [-half, half]];
-  if (edge === 'right') return [[half, -half], [half, half]];
-  if (edge === 'top') return [[-half, half], [half, half]];
-  return [[-half, -half], [half, -half]];
 }
 function bezierRide(start: Vec3Like, end: Vec3Like, t: number): Vec3Like {
   const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2, z: (start.z + end.z) / 2 };

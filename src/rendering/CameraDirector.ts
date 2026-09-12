@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { SpatialPresentationState } from '../gameplay/SpatialRuntime';
+import type { JuiceSnapshot } from '../vfx/JuiceDirector';
 import type { GameScene } from './GameScene';
 
 const FACE_SIZE = 14;
@@ -18,18 +19,26 @@ const CAMERA_DAMPING = 11;
  */
 export class CameraDirector {
   private readonly lookTarget = new THREE.Vector3(0, 0, 0);
+  private visualTime = 0;
 
   constructor(private readonly gameScene: GameScene) {}
 
-  update(presentation: SpatialPresentationState, dtSeconds: number): void {
-    this.apply(presentation, Math.min(dtSeconds, 0.05), false);
+  update(presentation: SpatialPresentationState, dtSeconds: number, juice: JuiceSnapshot): void {
+    const dt = Math.min(dtSeconds, 0.05);
+    this.visualTime += dt;
+    this.apply(presentation, dt, false, juice);
   }
 
   snap(presentation: SpatialPresentationState): void {
-    this.apply(presentation, 1, true);
+    this.apply(presentation, 1, true, null);
   }
 
-  private apply(presentation: SpatialPresentationState, dtSeconds: number, immediate: boolean): void {
+  private apply(
+    presentation: SpatialPresentationState,
+    dtSeconds: number,
+    immediate: boolean,
+    juice: JuiceSnapshot | null,
+  ): void {
     const camera = this.gameScene.camera;
     const tanVertical = Math.tan(camera.fov * Math.PI / 360);
     const tanHorizontal = tanVertical * Math.max(camera.aspect, 0.01);
@@ -42,6 +51,7 @@ export class CameraDirector {
 
     let targetZ = gameplayZ;
     let targetY = 0.15;
+    let targetX = 0;
 
     if (presentation.phase === 'INSPECT') {
       targetZ = inspectZ;
@@ -59,10 +69,18 @@ export class CameraDirector {
       targetY = THREE.MathUtils.lerp(0.15, 0, reveal);
     }
 
+    const allowsMicroResponse = presentation.phase === 'PLAY_FACE' || presentation.phase === 'EDGE_WINDOW' || presentation.phase === 'LIFE_LOST';
+    if (juice && allowsMicroResponse) {
+      const impulse = juice.eventPulse * juice.camera;
+      targetZ -= impulse * 0.75;
+      targetX += Math.sin(this.visualTime * 43) * impulse * 0.055;
+      targetY += Math.cos(this.visualTime * 37) * impulse * 0.04;
+    }
+
     if (immediate) {
-      camera.position.set(0, targetY, targetZ);
+      camera.position.set(targetX, targetY, targetZ);
     } else {
-      camera.position.x = THREE.MathUtils.damp(camera.position.x, 0, CAMERA_DAMPING, dtSeconds);
+      camera.position.x = THREE.MathUtils.damp(camera.position.x, targetX, CAMERA_DAMPING, dtSeconds);
       camera.position.y = THREE.MathUtils.damp(camera.position.y, targetY, CAMERA_DAMPING, dtSeconds);
       camera.position.z = THREE.MathUtils.damp(camera.position.z, targetZ, CAMERA_DAMPING, dtSeconds);
     }

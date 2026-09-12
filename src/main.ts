@@ -59,7 +59,7 @@ const loop = new GameLoop({
     const juiceSnapshot = juice.getSnapshot();
     vfx.update(frameDeltaSeconds, juiceSnapshot);
     scene.sync(simulation.state, alpha, presentation, juiceSnapshot, frameDeltaSeconds);
-    cameraDirector.update(presentation, frameDeltaSeconds);
+    cameraDirector.update(presentation, frameDeltaSeconds, juiceSnapshot);
     if (collisionOverlayVisible) scene.setDebugCollisionVisible(true, simulation.state);
     scene.render();
     status.textContent = statusText(presentation.edgeWindowProgress);
