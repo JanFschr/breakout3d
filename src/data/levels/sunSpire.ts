@@ -1,56 +1,69 @@
 import type { BlockDefinition, LevelDefinition } from '../LevelDefinition';
-import { brickGrid, type GridCellOverride } from '../levelBuilders';
+import { brickGrid, triangularBrickGrid } from '../levelBuilders';
 import { assertValidLevel } from '../validateLevel';
 
 const baseX = [-5.4, -3.6, -1.8, 0, 1.8, 3.6, 5.4] as const;
-const sideX = [-3.8, -1.9, 0, 1.9, 3.8] as const;
-
-function pyramidMask(row: number, column: number): boolean {
-  if (row <= 2) return true;
-  if (row <= 4) return column >= 1 && column <= 3;
-  return column === 2;
-}
-
-function triangularCell(
-  decorate?: (row: number, column: number) => GridCellOverride,
-): (row: number, column: number) => GridCellOverride | null {
-  return (row, column) => pyramidMask(row, column) ? decorate?.(row, column) ?? {} : null;
-}
+const SIDE_COLUMNS = [7, 7, 5, 5, 5, 3, 3, 1] as const;
+const SIDE_START_Y = 6.2;
+const SIDE_ROW_STEP = 1.05;
+const SIDE_WIDTH = 0.9;
+const SIDE_HEIGHT = 0.64;
+const SIDE_COLUMN_STEP = 1.1;
 
 const blocks: BlockDefinition[] = [
   ...brickGrid({
-    prefix: 'base', face: 'base', rows: 4, x: baseX, startY: 9.5, rowStep: 1.15, width: 1.5, height: 0.72,
+    prefix: 'base', face: 'base', rows: 5, x: baseX, startY: 7.4, rowStep: 1.1, width: 1.5, height: 0.72,
     cell: (row, column) => row === 2 && (column === 1 || column === 5) ? { type: 'chain', score: 190 } : {},
   }),
-  { id: 'anchor-base-north', type: 'anchor', face: 'base', edge: 'top', x: -2.8, y: 15.2, width: 1.2, height: 1.05, hitPoints: 2, score: 240 },
-  { id: 'anchor-base-east', type: 'anchor', face: 'base', edge: 'right', x: 2.8, y: 15.2, width: 1.2, height: 1.05, hitPoints: 2, score: 240 },
+  { id: 'anchor-base-north', type: 'anchor', face: 'base', edge: 'top', x: -2.8, y: 14.8, width: 1.2, height: 1.05, hitPoints: 2, score: 240 },
+  { id: 'anchor-base-east', type: 'anchor', face: 'base', edge: 'right', x: 2.8, y: 14.8, width: 1.2, height: 1.05, hitPoints: 2, score: 240 },
 
-  ...brickGrid({
-    prefix: 'north', face: 'north', rows: 6, x: sideX, startY: 5.6, rowStep: 1.05, width: 1.58, height: 0.72,
-    cell: triangularCell((row, column) => row === 2 && column === 2 ? { type: 'chain', score: 200 } : {}),
+  ...triangularBrickGrid({
+    prefix: 'north', face: 'north', columnsByRow: SIDE_COLUMNS, startY: SIDE_START_Y, rowStep: SIDE_ROW_STEP,
+    width: SIDE_WIDTH, height: SIDE_HEIGHT, columnStep: SIDE_COLUMN_STEP,
+    cell: (row, column, columns) => {
+      if (row === 4 && column === columns - 1) return null;
+      if (row === 2 && column === Math.floor(columns / 2)) return { type: 'chain', score: 200 };
+      return {};
+    },
   }),
-  { id: 'sun-lock-north', type: 'anchor', face: 'north', edge: 'right', x: 3.9, y: 6.7, width: 1.05, height: 1, hitPoints: 3, score: 320 },
+  { id: 'sun-lock-north', type: 'anchor', face: 'north', edge: 'right', x: 1.95, y: 10.4, width: 0.9, height: 0.9, hitPoints: 3, score: 320 },
 
-  ...brickGrid({
-    prefix: 'east', face: 'east', rows: 6, x: sideX, startY: 5.6, rowStep: 1.05, width: 1.58, height: 0.72,
-    cell: triangularCell((row, column) => row === 1 && (column === 1 || column === 3) ? { type: 'chain', score: 190 } : {}),
+  ...triangularBrickGrid({
+    prefix: 'east', face: 'east', columnsByRow: SIDE_COLUMNS, startY: SIDE_START_Y, rowStep: SIDE_ROW_STEP,
+    width: SIDE_WIDTH, height: SIDE_HEIGHT, columnStep: SIDE_COLUMN_STEP,
+    cell: (row, column, columns) => {
+      if (row === 4 && column === columns - 1) return null;
+      if (row === 5 && column === Math.floor(columns / 2)) return null;
+      if (row === 1 && (column === 2 || column === columns - 3)) return { type: 'chain', score: 190 };
+      return {};
+    },
   }),
-  { id: 'prism-node', type: 'generator', face: 'east', x: 0, y: 11.8, width: 2.1, height: 1.15, hitPoints: 4, score: 720 },
-  { id: 'anchor-east-south', type: 'anchor', face: 'east', edge: 'right', x: 3.9, y: 6.7, width: 1.05, height: 1, hitPoints: 2, score: 260 },
+  { id: 'prism-node', type: 'generator', face: 'east', x: 0, y: 11.45, width: 1.4, height: 0.85, hitPoints: 4, score: 720 },
+  { id: 'anchor-east-south', type: 'anchor', face: 'east', edge: 'right', x: 1.95, y: 10.4, width: 0.9, height: 0.9, hitPoints: 2, score: 260 },
 
-  ...brickGrid({
-    prefix: 'south', face: 'south', rows: 6, x: sideX, startY: 5.6, rowStep: 1.05, width: 1.58, height: 0.72,
-    cell: triangularCell((row, column) => row >= 1 && row <= 4 && column >= 1 && column <= 3
-      ? { type: 'armor', group: 'south-armor', hitPoints: 7, score: 240 }
-      : {}),
+  ...triangularBrickGrid({
+    prefix: 'south', face: 'south', columnsByRow: SIDE_COLUMNS, startY: SIDE_START_Y, rowStep: SIDE_ROW_STEP,
+    width: SIDE_WIDTH, height: SIDE_HEIGHT, columnStep: SIDE_COLUMN_STEP,
+    cell: (row, column, columns) => {
+      if (row === 4 && column === columns - 1) return null;
+      if (row === 1 && column === Math.floor(columns / 2)) return { type: 'chain', score: 210 };
+      if (row >= 2 && row <= 5) return { type: 'armor', group: 'south-armor', hitPoints: 6, score: 240 };
+      return {};
+    },
   }),
-  { id: 'sun-lock-south', type: 'anchor', face: 'south', edge: 'right', x: 3.9, y: 6.7, width: 1.05, height: 1, hitPoints: 3, score: 340 },
+  { id: 'sun-lock-south', type: 'anchor', face: 'south', edge: 'right', x: 1.95, y: 10.4, width: 0.9, height: 0.9, hitPoints: 3, score: 340 },
 
-  ...brickGrid({
-    prefix: 'west', face: 'west', rows: 6, x: sideX, startY: 5.6, rowStep: 1.05, width: 1.58, height: 0.72,
-    cell: triangularCell((row, column) => row === 2 && column === 2 ? { type: 'chain', score: 220 } : {}),
+  ...triangularBrickGrid({
+    prefix: 'west', face: 'west', columnsByRow: SIDE_COLUMNS, startY: SIDE_START_Y, rowStep: SIDE_ROW_STEP,
+    width: SIDE_WIDTH, height: SIDE_HEIGHT, columnStep: SIDE_COLUMN_STEP,
+    cell: (row, column, columns) => {
+      if (row === 7 && column === Math.floor(columns / 2)) return null;
+      if (row === 2 && column === Math.floor(columns / 2)) return { type: 'chain', score: 220 };
+      return {};
+    },
   }),
-  { id: 'core-west', type: 'core', face: 'west', x: 0, y: 12.2, width: 2.45, height: 1.35, hitPoints: 6, exposed: false, score: 2600 },
+  { id: 'core-west', type: 'core', face: 'west', x: 0, y: 13.55, width: 1.8, height: 0.9, hitPoints: 6, exposed: false, score: 2600 },
 ];
 
 export const SUN_SPIRE_LEVEL = {
@@ -79,8 +92,8 @@ export const SUN_SPIRE_LEVEL = {
     { id: 'south-armor-exposes-core', trigger: { type: 'groupCleared', group: 'south-armor' }, effects: [{ type: 'exposeBlock', blockId: 'core-west' }] },
   ],
   objective: { type: 'destroyCore', blockId: 'core-west' },
-  mastery: { comboTimeoutSeconds: 2.8, fullOrbitFaces: 4, overdriveSeconds: 9 },
-  scoring: { parSeconds: 260, comboPeakTarget: 30, orbitTierTarget: 3, scoreTarget: 16000, starThresholds: [60, 84] },
+  mastery: { comboTimeoutSeconds: 2.9, fullOrbitFaces: 4, overdriveSeconds: 9 },
+  scoring: { parSeconds: 300, comboPeakTarget: 36, orbitTierTarget: 3, scoreTarget: 19000, starThresholds: [60, 84] },
 } satisfies LevelDefinition;
 
 assertValidLevel(SUN_SPIRE_LEVEL);
