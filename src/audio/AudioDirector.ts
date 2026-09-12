@@ -1,4 +1,160 @@
-export interface AudioDirector {
-  setIntensity(value: number): void;
-  dispose(): void;
+import type { GameplayEvent, GameplayEventBus } from '../gameplay/GameplayEvents';
+
+const AUDIO_KEY = 'breakout3d.audio.enabled';
+const HAPTICS_KEY = 'breakout3d.haptics.enabled';
+
+export class AudioDirector {
+  private context: AudioContext | null = null;
+  private musicGain: GainNode | null = null;
+  private enabled = readBoolean(AUDIO_KEY, true);
+  private hapticsEnabled = readBoolean(HAPTICS_KEY, true);
+  private armed = false;
+  private readonly unsubscribe: () => void;
+
+  constructor(bus: GameplayEventBus) {
+    this.unsubscribe = bus.subscribe((event) => this.onEvent(event));
+  }
+
+  arm(): void {
+    if (this.armed) return;
+    this.armed = true;
+    window.addEventListener('pointerdown', this.resume, { passive: true, once: true });
+    window.addEventListener('keydown', this.resume, { once: true });
+  }
+
+  update(intensity: number): void {
+    if (!this.context || !this.musicGain || !this.enabled) return;
+    const now = this.context.currentTime;
+    const target = 0.004 + intensity * 0.018;
+    this.musicGain.gain.cancelScheduledValues(now);
+    this.musicGain.gain.setTargetAtTime(target, now, 0.12);
+  }
+
+  toggleEnabled(): boolean {
+    this.enabled = !this.enabled;
+    writeBoolean(AUDIO_KEY, this.enabled);
+    if (this.musicGain && this.context) this.musicGain.gain.setTargetAtTime(this.enabled ? 0.006 : 0, this.context.currentTime, 0.04);
+    if (this.enabled) void this.resume();
+    return this.enabled;
+  }
+
+  toggleHaptics(): boolean {
+    this.hapticsEnabled = !this.hapticsEnabled;
+    writeBoolean(HAPTICS_KEY, this.hapticsEnabled);
+    return this.hapticsEnabled;
+  }
+
+  isEnabled(): boolean { return this.enabled; }
+  isHapticsEnabled(): boolean { return this.hapticsEnabled; }
+
+  dispose(): void {
+    this.unsubscribe();
+    if (this.context) void this.context.close();
+  }
+
+  private readonly resume = async (): Promise<void> => {
+    if (!this.enabled) return;
+    if (!this.context) this.createContext();
+    if (this.context?.state === 'suspended') await this.context.resume();
+  };
+
+  private createContext(): void {
+    this.context = new AudioContext();
+    this.musicGain = this.context.createGain();
+    this.musicGain.gain.value = 0.004;
+    this.musicGain.connect(this.context.destination);
+
+    const bass = this.context.createOscillator();
+    bass.type = 'sine';
+    bass.frequency.value = 110;
+    const shimmer = this.context.createOscillator();
+    shimmer.type = 'triangle';
+    shimmer.frequency.value = 220;
+    const bassGain = this.context.createGain();
+    const shimmerGain = this.context.createGain();
+    bassGain.gain.value = 0.65;
+    shimmerGain.gain.value = 0.12;
+    bass.connect(bassGain).connect(this.musicGain);
+    shimmer.connect(shimmerGain).connect(this.musicGain);
+    bass.start();
+    shimmer.start();
+  }
+
+  private onEvent(event: GameplayEvent): void {
+    if (this.enabled) this.playEvent(event);
+    if (this.hapticsEnabled) this.hapticEvent(event);
+  }
+
+  private playEvent(event: GameplayEvent): void {
+    if (!this.context || this.context.state !== 'running') return;
+    if (event.type === 'BlockHit') {
+      this.playTone(event.destroyed ? 330 : 245, event.destroyed ? 0.11 : 0.055, event.destroyed ? 0.06 : 0.025, 'sine');
+      return;
+    }
+    if (event.type === 'FlipRated') {
+      const frequency = event.rating === 'perfect' ? 880 : event.rating === 'good' ? 660 : 440;
+      this.playTone(frequency, event.rating === 'perfect' ? 0.18 : 0.11, 0.055, 'triangle');
+      return;
+    }
+    if (event.type === 'GeneratorDestroyed') {
+      this.playTone(196, 0.28, 0.08, 'sawtooth');
+      this.playTone(392, 0.34, 0.04, 'sine', 0.05);
+      return;
+    }
+    if (event.type === 'ChainTriggered') {
+      this.playTone(150, 0.24, 0.07, 'square');
+      return;
+    }
+    if (event.type === 'CoreExposed') {
+      this.playTone(523.25, 0.42, 0.07, 'triangle');
+      return;
+    }
+    if (event.type === 'CoreDestroyed') {
+      this.playTone(98, 0.75, 0.12, 'sawtooth');
+      this.playTone(392, 0.55, 0.07, 'triangle', 0.08);
+      this.playTone(784, 0.42, 0.05, 'sine', 0.18);
+    }
+  }
+
+  private playTone(
+    frequency: number,
+    duration: number,
+    gainValue: number,
+    type: OscillatorType,
+    delay = 0,
+  ): void {
+    if (!this.context) return;
+    const start = this.context.currentTime + delay;
+    const oscillator = this.context.createOscillator();
+    const gain = this.context.createGain();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, start);
+    oscillator.frequency.exponentialRampToValueAtTime(Math.max(45, frequency * 1.08), start + duration);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(gainValue, start + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    oscillator.connect(gain).connect(this.context.destination);
+    oscillator.start(start);
+    oscillator.stop(start + duration + 0.03);
+  }
+
+  private hapticEvent(event: GameplayEvent): void {
+    if (!('vibrate' in navigator)) return;
+    if (event.type === 'FlipRated' && event.rating === 'perfect') navigator.vibrate(12);
+    else if (event.type === 'BlockDestroyed') navigator.vibrate(5);
+    else if (event.type === 'CoreDestroyed') navigator.vibrate([18, 35, 42]);
+  }
+}
+
+function readBoolean(key: string, fallback: boolean): boolean {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored === null ? fallback : stored === 'true';
+  } catch {
+    return fallback;
+  }
+}
+
+function writeBoolean(key: string, value: boolean): void {
+  try { localStorage.setItem(key, String(value)); } catch { /* storage is optional */ }
 }

@@ -12,9 +12,20 @@
       <div class="hud">
         <h1>BREAKOUT<span>3D</span></h1>
         <p id="status">Vertical Slice</p>
-        <button id="inspect" type="button" aria-pressed="false">Inspect</button>
+        <div class="hud-actions">
+          <button id="sound" type="button" aria-pressed="true" title="Sound umschalten">Sound</button>
+          <button id="haptics" type="button" aria-pressed="true" title="Haptik umschalten">Haptic</button>
+          <button id="inspect" type="button" aria-pressed="false">Inspect</button>
+        </div>
       </div>
       <div id="game" aria-label="3D-Breakout-Spielfeld"></div>
+      <section id="results" class="results-card" hidden aria-live="polite">
+        <p id="result-kicker" class="result-kicker">REACTOR GARDEN</p>
+        <h2 id="result-title">Complete</h2>
+        <div id="result-stars" class="result-stars" aria-label="Sterne"></div>
+        <p id="result-details"></p>
+        <button id="retry" type="button">Nochmal spielen</button>
+      </section>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

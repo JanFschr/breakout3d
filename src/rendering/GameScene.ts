@@ -1,30 +1,45 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { APP_CONFIG } from '../core/config';
 import type { SpatialPresentationState } from '../gameplay/SpatialRuntime';
 import type { BlockState, BreakoutState } from '../gameplay/contracts';
 import { FACE_GRAPH, FACE_IDS, localToBody, type FaceBasis, type FaceEdge, type FaceId, type Vec3Like } from '../world/FaceGraph';
+import { BallTrail } from '../vfx/BallTrail';
+import { createHeroBallMaterial, type HeroBallUniforms } from '../vfx/HeroBallMaterial';
+import type { JuiceSnapshot } from '../vfx/JuiceDirector';
 
 const FACE_SIZE = 14;
 const Y_SCALE = FACE_SIZE / APP_CONFIG.gameplay.fieldHeight;
+const BASE_BACKGROUND = new THREE.Color(0xeafcff);
+const PEAK_BACKGROUND = new THREE.Color(0xffeefb);
 
 export class GameScene {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-  readonly renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  readonly renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
   readonly paddle: THREE.Mesh;
-  readonly ball: THREE.Mesh;
+  readonly ball: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
+  private readonly composer: EffectComposer;
+  private readonly bloomPass: UnrealBloomPass;
   private readonly bodyRoot = new THREE.Group();
-  private readonly blockMeshes = new Map<string, THREE.Mesh>();
+  private readonly blockMeshes = new Map<string, THREE.Mesh<THREE.BoxGeometry, THREE.MeshPhysicalMaterial>>();
   private readonly debugGroup = new THREE.Group();
   private readonly edgeGeometry = new THREE.BufferGeometry();
   private readonly edgeMaterial = new THREE.LineBasicMaterial({ color: 0x42d7ff, transparent: true, opacity: 0 });
   private readonly edgeLine = new THREE.Line(this.edgeGeometry, this.edgeMaterial);
+  private readonly ballUniforms: HeroBallUniforms;
+  private readonly ballTrail = new BallTrail();
+  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private readonly backgroundColor = new THREE.Color();
   private activeFace: FaceId = 'front';
   private inspectYaw = 0;
   private inspectPitch = 0;
+  private visualTime = 0;
 
   constructor(private readonly container: HTMLElement, state: BreakoutState) {
-    this.scene.background = new THREE.Color(APP_CONFIG.background);
+    this.scene.background = this.backgroundColor.copy(BASE_BACKGROUND);
     this.scene.fog = new THREE.Fog(0xeafcff, 27, 52);
     this.camera.position.set(0, 0.7, 26);
     this.camera.lookAt(0, 0, 0);
@@ -33,7 +48,14 @@ export class GameScene {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.08;
     this.container.append(this.renderer.domElement);
+
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.28, 0.46, 0.8);
+    this.composer.addPass(this.bloomPass);
 
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0xa8c7d9, 3));
     const key = new THREE.DirectionalLight(0xffffff, 3.4);
@@ -46,16 +68,26 @@ export class GameScene {
 
     this.paddle = new THREE.Mesh(
       new THREE.BoxGeometry(state.paddle.width, 0.48, state.paddle.height * Y_SCALE),
-      new THREE.MeshPhysicalMaterial({ color: 0x8d7cff, emissive: 0x4b35d5, emissiveIntensity: 0.4, roughness: 0.1, clearcoat: 1 }),
+      new THREE.MeshPhysicalMaterial({
+        color: 0x9d92ff,
+        emissive: 0x5945f1,
+        emissiveIntensity: 0.46,
+        roughness: 0.08,
+        clearcoat: 1,
+        clearcoatRoughness: 0.08,
+        transmission: 0.08,
+        thickness: 0.35,
+      }),
     );
     this.paddle.castShadow = true;
     this.bodyRoot.add(this.paddle);
 
-    this.ball = new THREE.Mesh(
-      new THREE.SphereGeometry(state.ball.radius, 32, 18),
-      new THREE.MeshPhysicalMaterial({ color: 0xffffff, emissive: 0x45caff, emissiveIntensity: 1, roughness: 0.06, clearcoat: 1 }),
-    );
-    this.ball.castShadow = true;
+    const heroBall = createHeroBallMaterial();
+    this.ballUniforms = heroBall.uniforms;
+    this.ball = new THREE.Mesh(new THREE.SphereGeometry(state.ball.radius, 48, 32), heroBall.material);
+    this.ball.castShadow = false;
+    this.ball.renderOrder = 5;
+    this.bodyRoot.add(this.ballTrail.object);
     this.bodyRoot.add(this.ball);
 
     for (const faceId of FACE_IDS) {
@@ -68,35 +100,65 @@ export class GameScene {
     this.resize();
   }
 
+  getBodyRoot(): THREE.Group { return this.bodyRoot; }
+
+  getBlockBodyPosition(blockId: string): THREE.Vector3 | null {
+    const mesh = this.blockMeshes.get(blockId);
+    return mesh ? mesh.position.clone() : null;
+  }
+
   resize(): void {
     const { clientWidth, clientHeight } = this.container;
     this.renderer.setSize(clientWidth, clientHeight, false);
+    this.composer.setSize(clientWidth, clientHeight);
     this.camera.aspect = clientWidth / clientHeight;
     this.camera.updateProjectionMatrix();
   }
 
-  sync(state: BreakoutState, alpha: number, spatial: SpatialPresentationState): void {
+  sync(
+    state: BreakoutState,
+    alpha: number,
+    spatial: SpatialPresentationState,
+    juice: JuiceSnapshot,
+    frameDeltaSeconds: number,
+  ): void {
+    this.visualTime += Math.min(frameDeltaSeconds, 0.05);
     this.activeFace = spatial.activeFace;
     const activeBasis = FACE_GRAPH[spatial.activeFace];
     const ballX = lerp(state.ball.previousPosition.x, state.ball.position.x, alpha);
     const ballY = lerp(state.ball.previousPosition.y, state.ball.position.y, alpha);
     const paddleX = lerp(state.paddle.previousX, state.paddle.x, alpha);
 
+    this.backgroundColor.lerpColors(BASE_BACKGROUND, PEAK_BACKGROUND, juice.intensity * 0.42 + juice.eventPulse * 0.18);
+    this.bloomPass.strength = THREE.MathUtils.lerp(0.2, 1.05, juice.glow);
+    this.bloomPass.radius = THREE.MathUtils.lerp(0.28, 0.58, juice.intensity);
+    this.renderer.toneMappingExposure = THREE.MathUtils.lerp(1.02, 1.16, juice.intensity);
+
+    this.ballUniforms.time.value = this.visualTime;
+    this.ballUniforms.energy.value = juice.intensity;
+    this.ballUniforms.impact.value = juice.eventPulse;
+    this.ballUniforms.direction.value.set(state.ball.velocity.x, 0, -state.ball.velocity.y * Y_SCALE).normalize();
+
     if (spatial.phase !== 'EDGE_RIDE') setBodyPosition(this.ball, localToBody(spatial.activeFace, ballX, centeredY(ballY), 0.42));
     setBodyPosition(this.paddle, localToBody(spatial.activeFace, paddleX, centeredY(state.paddle.y), 0.24));
     this.paddle.quaternion.copy(meshQuaternionForFace(activeBasis));
     this.paddle.rotateZ(THREE.MathUtils.clamp(-state.paddle.velocityX * 0.012, -0.11, 0.11));
+    (this.paddle.material as THREE.MeshPhysicalMaterial).emissiveIntensity = THREE.MathUtils.lerp(0.35, 1.1, juice.glow);
 
     for (const faceId of FACE_IDS) {
       for (const block of state.faces[faceId].blocks) {
         const mesh = this.blockMeshes.get(block.id);
         if (!mesh) continue;
-        mesh.visible = !block.destroyed;
+        mesh.scale.setScalar(1);
+        mesh.visible = !block.destroyed && spatial.phase !== 'RESULTS';
         setBodyPosition(mesh, localToBody(faceId, block.position.x, centeredY(block.position.y), 0.23));
         mesh.quaternion.copy(meshQuaternionForFace(FACE_GRAPH[faceId]));
-        updateBlockMaterial(mesh, block, faceId === spatial.activeFace);
+        updateBlockMaterial(mesh, block, faceId === spatial.activeFace, juice);
       }
     }
+
+    this.ball.visible = spatial.phase !== 'RESULTS' && (spatial.phase !== 'CORE_KILL' || spatial.coreKillProgress < 0.34);
+    this.paddle.visible = spatial.phase !== 'CORE_KILL' && spatial.phase !== 'RESULTS';
 
     if (spatial.phase === 'EDGE_RIDE' && spatial.ride) {
       const progress = smoothstep(spatial.ride.progress);
@@ -106,11 +168,20 @@ export class GameScene {
       const target = faceQuaternion(spatial.activeFace);
       const inspect = new THREE.Quaternion().setFromEuler(new THREE.Euler(this.inspectPitch, this.inspectYaw, 0, 'YXZ'));
       this.bodyRoot.quaternion.copy(inspect.multiply(target));
+    } else if (spatial.phase === 'CORE_KILL') {
+      this.applyCoreKill(spatial.coreKillProgress, state);
+    } else if (spatial.phase === 'RESULTS') {
+      this.applyResultsPose();
     } else {
       this.setBodyFaceOrientation(spatial.activeFace);
+      this.camera.position.z = THREE.MathUtils.lerp(this.camera.position.z, 26, 0.16);
+      this.camera.position.x = THREE.MathUtils.lerp(this.camera.position.x, 0, 0.16);
+      this.camera.position.y = THREE.MathUtils.lerp(this.camera.position.y, 0.7, 0.16);
+      this.camera.lookAt(0, 0, 0);
     }
 
-    this.updateEdgeWindow(spatial.edgeWindow, spatial.edgeWindowProgress);
+    if (this.ball.visible) this.ballTrail.push(this.ball.position, juice.trail);
+    this.updateEdgeWindow(spatial.edgeWindow, spatial.edgeWindowProgress, juice);
   }
 
   applyInspectDrag(deltaX: number, deltaY: number): void {
@@ -121,6 +192,15 @@ export class GameScene {
   resetInspect(): void {
     this.inspectYaw = 0;
     this.inspectPitch = 0;
+  }
+
+  resetPresentation(): void {
+    this.ballTrail.clear();
+    this.camera.position.set(0, 0.7, 26);
+    this.camera.lookAt(0, 0, 0);
+    this.bodyRoot.scale.setScalar(1);
+    this.ball.visible = true;
+    this.paddle.visible = true;
   }
 
   setDebugCollisionVisible(visible: boolean, state: BreakoutState): void {
@@ -144,12 +224,24 @@ export class GameScene {
     for (const block of state.blocks) if (!block.destroyed) addRect(block.position.x, block.position.y, block.width, block.height);
   }
 
-  render(): void { this.renderer.render(this.scene, this.camera); }
+  render(): void { this.composer.render(); }
 
   private createBlockMesh(block: BlockState): void {
+    const hero = block.type === 'core' || block.type === 'generator';
     const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(block.width, blockThickness(block), block.height * Y_SCALE),
-      new THREE.MeshPhysicalMaterial({ color: blockColor(block), roughness: 0.14, clearcoat: 0.85, transparent: true, opacity: 1 }),
+      new THREE.BoxGeometry(block.width, blockThickness(block), block.height * Y_SCALE, 2, 2, 2),
+      new THREE.MeshPhysicalMaterial({
+        color: blockColor(block),
+        roughness: hero ? 0.08 : 0.16,
+        metalness: 0.02,
+        clearcoat: 0.9,
+        clearcoatRoughness: 0.1,
+        transparent: true,
+        opacity: 1,
+        transmission: hero ? 0.24 : 0,
+        thickness: hero ? 0.55 : 0.18,
+        ior: 1.35,
+      }),
     );
     mesh.castShadow = true;
     this.bodyRoot.add(mesh);
@@ -160,8 +252,17 @@ export class GameScene {
     for (const faceId of FACE_IDS) {
       const basis = FACE_GRAPH[faceId];
       const panel = new THREE.Mesh(
-        new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE),
-        new THREE.MeshPhysicalMaterial({ color: faceId === 'front' ? 0xd9f6ff : 0xe8f9ff, transparent: true, opacity: 0.34, roughness: 0.24, clearcoat: 0.8, side: THREE.DoubleSide }),
+        new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE, 20, 20),
+        new THREE.MeshPhysicalMaterial({
+          color: faceId === 'front' ? 0xd9f6ff : 0xe8f9ff,
+          transparent: true,
+          opacity: 0.3,
+          roughness: 0.2,
+          metalness: 0.01,
+          clearcoat: 0.85,
+          clearcoatRoughness: 0.1,
+          side: THREE.DoubleSide,
+        }),
       );
       setBodyPosition(panel, basis.origin);
       panel.quaternion.copy(panelQuaternionForFace(basis));
@@ -169,26 +270,60 @@ export class GameScene {
     }
     this.bodyRoot.add(new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(FACE_SIZE, FACE_SIZE, FACE_SIZE)),
-      new THREE.LineBasicMaterial({ color: 0x9fcfe0, transparent: true, opacity: 0.55 }),
+      new THREE.LineBasicMaterial({ color: 0x8ed9ed, transparent: true, opacity: 0.7 }),
     ));
   }
 
   private setBodyFaceOrientation(faceId: FaceId): void { this.bodyRoot.quaternion.copy(faceQuaternion(faceId)); }
 
-  private updateEdgeWindow(edge: FaceEdge | null, progress: number): void {
+  private updateEdgeWindow(edge: FaceEdge | null, progress: number, juice: JuiceSnapshot): void {
     if (!edge) { this.edgeMaterial.opacity = 0; return; }
     const half = FACE_SIZE / 2;
     this.edgeGeometry.setFromPoints(edgePoints(edge, half).map(([u, v]) => vec3(localToBody(this.activeFace, u, v, 0.52))));
-    this.edgeMaterial.opacity = 0.48 + Math.sin(progress * Math.PI * 5) * 0.32;
+    this.edgeMaterial.opacity = 0.48 + Math.sin(progress * Math.PI * 5) * 0.28 + juice.glow * 0.18;
+    this.edgeMaterial.color.setHSL(THREE.MathUtils.lerp(0.53, 0.82, juice.intensity), 0.92, 0.68);
+  }
+
+  private applyCoreKill(progress: number, state: BreakoutState): void {
+    const p = smoothstep(progress);
+    if (this.reducedMotion) {
+      this.bodyRoot.quaternion.setFromEuler(new THREE.Euler(0.2, p * Math.PI * 0.8, 0.08));
+      this.camera.position.z = 29;
+    } else {
+      this.bodyRoot.quaternion.setFromEuler(new THREE.Euler(p * Math.PI * 1.5, p * Math.PI * 4.4, Math.sin(p * Math.PI) * 0.35));
+      this.camera.position.z = 26 + Math.sin(p * Math.PI) * 6;
+      this.camera.position.y = 0.7 + Math.sin(p * Math.PI * 2) * 0.7;
+    }
+    this.camera.lookAt(0, 0, 0);
+
+    FACE_IDS.forEach((faceId, faceIndex) => {
+      for (const block of state.faces[faceId].blocks) {
+        if (block.destroyed) continue;
+        const mesh = this.blockMeshes.get(block.id);
+        if (!mesh) continue;
+        const start = 0.22 + faceIndex * 0.07;
+        const collapse = clamp01((p - start) / 0.16);
+        const scale = 1 - smoothstep(collapse);
+        mesh.scale.setScalar(scale);
+        if (scale < 0.02) mesh.visible = false;
+      }
+    });
+  }
+
+  private applyResultsPose(): void {
+    this.bodyRoot.quaternion.setFromEuler(new THREE.Euler(0.34, 0.68, 0.08));
+    this.camera.position.set(0, 0.9, 31);
+    this.camera.lookAt(0, 0, 0);
   }
 }
 
-function updateBlockMaterial(mesh: THREE.Mesh, block: BlockState, active: boolean): void {
-  const material = mesh.material as THREE.MeshPhysicalMaterial;
+function updateBlockMaterial(mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshPhysicalMaterial>, block: BlockState, active: boolean, juice: JuiceSnapshot): void {
+  const material = mesh.material;
   material.color.setHex(blockColor(block));
-  material.opacity = active ? 1 : 0.28;
+  material.opacity = active ? 0.98 : 0.25;
   material.emissive.setHex(blockEmissive(block));
-  material.emissiveIntensity = active ? blockEmissiveIntensity(block) : blockEmissiveIntensity(block) * 0.35;
+  material.emissiveIntensity = active ? blockEmissiveIntensity(block) * (0.8 + juice.glow * 0.8) : blockEmissiveIntensity(block) * 0.28;
+  if (block.type === 'core' || block.type === 'generator') material.transmission = active ? 0.28 : 0.08;
 }
 
 function blockColor(block: BlockState): number {
@@ -208,7 +343,7 @@ function blockEmissive(block: BlockState): number {
   return 0x000000;
 }
 function blockEmissiveIntensity(block: BlockState): number {
-  return block.type === 'normal' || block.type === 'armor' && block.armorMode === 'protected' ? 0 : 0.55;
+  return block.type === 'normal' || (block.type === 'armor' && block.armorMode === 'protected') ? 0 : 0.62;
 }
 function blockThickness(block: BlockState): number { return block.type === 'core' ? 0.9 : block.type === 'generator' ? 0.7 : 0.46; }
 function centeredY(gameplayY: number): number { return (gameplayY - APP_CONFIG.gameplay.fieldHeight / 2) * Y_SCALE; }
@@ -238,3 +373,4 @@ function bezierRide(start: Vec3Like, end: Vec3Like, t: number): Vec3Like {
 }
 function lerp(a: number, b: number, alpha: number): number { return a + (b - a) * alpha; }
 function smoothstep(value: number): number { return value * value * (3 - 2 * value); }
+function clamp01(value: number): number { return Math.max(0, Math.min(1, value)); }

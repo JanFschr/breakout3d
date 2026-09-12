@@ -13,7 +13,7 @@ import {
 import type { BreakoutSimulation, PendingEdgeHit } from './BreakoutSimulation';
 import type { FlipRating, GameplayEventBus } from './GameplayEvents';
 
-export type RuntimePhase = 'PLAY_FACE' | 'EDGE_WINDOW' | 'EDGE_RIDE' | 'INSPECT' | 'LIFE_LOST' | 'GAME_OVER' | 'CLEARED';
+export type RuntimePhase = 'PLAY_FACE' | 'EDGE_WINDOW' | 'EDGE_RIDE' | 'INSPECT' | 'LIFE_LOST' | 'GAME_OVER' | 'CORE_KILL' | 'RESULTS';
 
 export interface EdgeRidePresentation {
   readonly sourceFace: FaceId;
@@ -30,10 +30,12 @@ export interface SpatialPresentationState {
   readonly edgeWindow: FaceEdge | null;
   readonly edgeWindowProgress: number;
   readonly ride: EdgeRidePresentation | null;
+  readonly coreKillProgress: number;
 }
 
 const EDGE_WINDOW_SECONDS = 0.42;
 const EDGE_RIDE_SECONDS = 0.58;
+const CORE_KILL_SECONDS = 3.2;
 const SWIPE_THRESHOLD = 28;
 const FACE_SIZE = 14;
 
@@ -44,6 +46,7 @@ export class SpatialRuntime {
   private edgeGestureX = 0;
   private edgeGestureY = 0;
   private rideElapsed = 0;
+  private coreKillElapsed = 0;
   private pending: PendingEdgeHit | null = null;
   private destinationFace: FaceId | null = null;
   private destinationPosition: { x: number; y: number } | null = null;
@@ -71,6 +74,7 @@ export class SpatialRuntime {
     this.edgeGestureX = 0;
     this.edgeGestureY = 0;
     this.rideElapsed = 0;
+    this.coreKillElapsed = 0;
     this.pending = null;
     this.destinationFace = null;
     this.destinationPosition = null;
@@ -87,10 +91,11 @@ export class SpatialRuntime {
       if (this.phase === 'INSPECT') this.phase = 'PLAY_FACE';
       else if (this.phase === 'PLAY_FACE') this.phase = 'INSPECT';
     }
-    if (this.phase === 'INSPECT') return;
+    if (this.phase === 'INSPECT' || this.phase === 'RESULTS' || this.phase === 'GAME_OVER') return;
     if (this.phase === 'PLAY_FACE') return this.updatePlay(dtSeconds, input);
     if (this.phase === 'EDGE_WINDOW') return this.updateEdgeWindow(dtSeconds, input);
     if (this.phase === 'EDGE_RIDE') return this.updateEdgeRide(dtSeconds);
+    if (this.phase === 'CORE_KILL') return this.updateCoreKill(dtSeconds);
     if (this.phase === 'LIFE_LOST') {
       this.simulation.update(dtSeconds);
       if (this.simulation.state.phase === 'ready') this.phase = 'PLAY_FACE';
@@ -101,7 +106,14 @@ export class SpatialRuntime {
     const ride = this.phase === 'EDGE_RIDE' && this.destinationFace && this.sourceBodyPoint && this.destinationBodyPoint
       ? { sourceFace: this.activeFace, destinationFace: this.destinationFace, sourceBodyPoint: this.sourceBodyPoint, destinationBodyPoint: this.destinationBodyPoint, progress: clamp01(this.rideElapsed / EDGE_RIDE_SECONDS), rating: this.rideRating }
       : null;
-    return { phase: this.phase, activeFace: this.activeFace, edgeWindow: this.pending?.edge ?? null, edgeWindowProgress: clamp01(this.edgeWindowElapsed / EDGE_WINDOW_SECONDS), ride };
+    return {
+      phase: this.phase,
+      activeFace: this.activeFace,
+      edgeWindow: this.pending?.edge ?? null,
+      edgeWindowProgress: clamp01(this.edgeWindowElapsed / EDGE_WINDOW_SECONDS),
+      ride,
+      coreKillProgress: clamp01(this.coreKillElapsed / CORE_KILL_SECONDS),
+    };
   }
 
   private updatePlay(dtSeconds: number, input: InputSnapshot): void {
@@ -119,7 +131,10 @@ export class SpatialRuntime {
     }
     if (this.simulation.state.phase === 'life-lost') this.phase = 'LIFE_LOST';
     if (this.simulation.state.phase === 'game-over') this.phase = 'GAME_OVER';
-    if (this.simulation.state.phase === 'cleared') this.phase = 'CLEARED';
+    if (this.simulation.state.phase === 'cleared') {
+      this.coreKillElapsed = 0;
+      this.phase = 'CORE_KILL';
+    }
   }
 
   private updateEdgeWindow(dtSeconds: number, input: InputSnapshot): void {
@@ -131,13 +146,7 @@ export class SpatialRuntime {
       const destination = destinationForEdge(this.activeFace, this.pending.edge);
       this.rideRating = classifyFlip(this.edgeWindowElapsed / EDGE_WINDOW_SECONDS);
       this.eventBus.emit({ type: 'FlipRated', rating: this.rideRating });
-      this.eventBus.emit({
-        type: 'EdgeCommitted',
-        sourceFace: this.activeFace,
-        destinationFace: destination,
-        edge: this.pending.edge,
-        rating: this.rideRating,
-      });
+      this.eventBus.emit({ type: 'EdgeCommitted', sourceFace: this.activeFace, destinationFace: destination, edge: this.pending.edge, rating: this.rideRating });
       this.prepareRide(this.pending);
       this.phase = 'EDGE_RIDE';
       this.rideElapsed = 0;
@@ -186,6 +195,11 @@ export class SpatialRuntime {
     this.edgeGestureX = 0;
     this.edgeGestureY = 0;
     this.phase = 'PLAY_FACE';
+  }
+
+  private updateCoreKill(dtSeconds: number): void {
+    this.coreKillElapsed += dtSeconds;
+    if (this.coreKillElapsed >= CORE_KILL_SECONDS) this.phase = 'RESULTS';
   }
 }
 
