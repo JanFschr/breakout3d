@@ -10,10 +10,13 @@ import { MasterySystem } from './gameplay/MasterySystem';
 import { evaluateStars } from './gameplay/Scoring';
 import { SpatialRuntime } from './gameplay/SpatialRuntime';
 import { InputController } from './input/InputController';
+import { registerServiceWorker } from './pwa/registerServiceWorker';
 import { CameraDirector } from './rendering/CameraDirector';
 import { GameScene } from './rendering/GameScene';
 import { JuiceDirector } from './vfx/JuiceDirector';
 import { VfxDirector } from './vfx/VfxDirector';
+
+registerServiceWorker();
 
 const container = document.querySelector<HTMLElement>('#game');
 const status = document.querySelector<HTMLElement>('#status');

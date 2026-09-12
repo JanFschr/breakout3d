@@ -1,0 +1,19 @@
+{
+  "name": "Breakout3D",
+  "short_name": "Breakout3D",
+  "description": "A spatial Breakout vertical slice built with Three.js.",
+  "start_url": "/breakout3d/",
+  "scope": "/breakout3d/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#050a12",
+  "theme_color": "#050a12",
+  "icons": [
+    {
+      "src": "/breakout3d/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
