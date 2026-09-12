@@ -26,11 +26,12 @@ export function createBlockState(definition: BlockDefinition): BlockState {
   };
 }
 
-export function hitBlock(block: BlockState): BlockHitResult {
+export function hitBlock(block: BlockState, damageMultiplier = 1): BlockHitResult {
   if (block.destroyed) return { blocked: false, destroyed: true, score: 0 };
   if (block.type === 'core' && !block.exposed) return { blocked: true, destroyed: false, score: 5 };
 
-  const damage = block.type === 'armor' && block.armorMode === 'weakened' ? 4 : 1;
+  const baseDamage = block.type === 'armor' && block.armorMode === 'weakened' ? 4 : 1;
+  const damage = Math.max(1, Math.round(baseDamage * Math.max(1, damageMultiplier)));
   block.hitPoints -= damage;
   if (block.hitPoints <= 0) {
     block.hitPoints = 0;

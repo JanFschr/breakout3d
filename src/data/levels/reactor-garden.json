@@ -3,14 +3,7 @@
   "id": "cube-01-reactor-garden",
   "displayName": "Reactor Garden",
   "startFace": "front",
-  "faces": {
-    "front": { "enabled": true },
-    "right": { "enabled": true },
-    "back": { "enabled": true },
-    "left": { "enabled": true },
-    "top": { "enabled": true },
-    "bottom": { "enabled": true }
-  },
+  "faces": { "front": { "enabled": true }, "right": { "enabled": true }, "back": { "enabled": true }, "left": { "enabled": true }, "top": { "enabled": true }, "bottom": { "enabled": true } },
   "blocks": [
     { "id": "f-n1", "type": "normal", "face": "front", "x": -4.8, "y": 9.8, "width": 1.5, "height": 0.7, "hitPoints": 1 },
     { "id": "f-n2", "type": "normal", "face": "front", "x": -2.4, "y": 9.8, "width": 1.5, "height": 0.7, "hitPoints": 1 },
@@ -22,18 +15,15 @@
     { "id": "armor-f3", "type": "armor", "face": "front", "group": "front-armor", "x": 1.2, "y": 13.0, "width": 1.8, "height": 0.9, "hitPoints": 8, "score": 220 },
     { "id": "armor-f4", "type": "armor", "face": "front", "group": "front-armor", "x": 3.6, "y": 13.0, "width": 1.8, "height": 0.9, "hitPoints": 8, "score": 220 },
     { "id": "core-front", "type": "core", "face": "front", "x": 0, "y": 15.5, "width": 2.4, "height": 1.4, "hitPoints": 4, "exposed": false, "score": 1600 },
-
     { "id": "r-n1", "type": "normal", "face": "right", "x": -4.2, "y": 10.2, "width": 1.6, "height": 0.7, "hitPoints": 1 },
     { "id": "r-n2", "type": "normal", "face": "right", "x": 4.2, "y": 10.2, "width": 1.6, "height": 0.7, "hitPoints": 1 },
     { "id": "generator-g1", "type": "generator", "face": "right", "x": 0, "y": 13.2, "width": 2.4, "height": 1.4, "hitPoints": 3, "score": 500 },
     { "id": "anchor-right-top", "type": "anchor", "face": "right", "edge": "top", "x": 4.8, "y": 15.5, "width": 1.2, "height": 1.2, "hitPoints": 1, "score": 180 },
-
     { "id": "top-chain-1", "type": "chain", "face": "top", "x": -2.4, "y": 12.2, "width": 1.3, "height": 1.0, "hitPoints": 1, "score": 160 },
     { "id": "top-chain-2", "type": "chain", "face": "top", "x": 0, "y": 12.2, "width": 1.3, "height": 1.0, "hitPoints": 1, "score": 160 },
     { "id": "top-chain-3", "type": "chain", "face": "top", "x": 2.4, "y": 12.2, "width": 1.3, "height": 1.0, "hitPoints": 1, "score": 160 },
     { "id": "top-n1", "type": "normal", "face": "top", "x": -4.8, "y": 14.6, "width": 1.5, "height": 0.7, "hitPoints": 1 },
     { "id": "top-n2", "type": "normal", "face": "top", "x": 4.8, "y": 14.6, "width": 1.5, "height": 0.7, "hitPoints": 1 },
-
     { "id": "left-n1", "type": "normal", "face": "left", "x": -2.4, "y": 12, "width": 1.6, "height": 0.7, "hitPoints": 1 },
     { "id": "left-n2", "type": "normal", "face": "left", "x": 2.4, "y": 12, "width": 1.6, "height": 0.7, "hitPoints": 1 },
     { "id": "back-n1", "type": "normal", "face": "back", "x": -2.4, "y": 12, "width": 1.6, "height": 0.7, "hitPoints": 1 },
@@ -45,16 +35,10 @@
     { "face": "right", "edge": "top", "requiredAnchors": ["anchor-right-top"] }
   ],
   "dependencies": [
-    {
-      "id": "g1-weakens-front-armor",
-      "trigger": { "type": "blockDestroyed", "blockId": "generator-g1" },
-      "effects": [{ "type": "weakenGroup", "group": "front-armor" }]
-    },
-    {
-      "id": "front-armor-exposes-core",
-      "trigger": { "type": "groupCleared", "group": "front-armor" },
-      "effects": [{ "type": "exposeBlock", "blockId": "core-front" }]
-    }
+    { "id": "g1-weakens-front-armor", "trigger": { "type": "blockDestroyed", "blockId": "generator-g1" }, "effects": [{ "type": "weakenGroup", "group": "front-armor" }] },
+    { "id": "front-armor-exposes-core", "trigger": { "type": "groupCleared", "group": "front-armor" }, "effects": [{ "type": "exposeBlock", "blockId": "core-front" }] }
   ],
-  "objective": { "type": "destroyCore", "blockId": "core-front" }
+  "objective": { "type": "destroyCore", "blockId": "core-front" },
+  "mastery": { "comboTimeoutSeconds": 2.4, "fullOrbitFaces": 4, "overdriveSeconds": 8 },
+  "scoring": { "parSeconds": 150, "comboPeakTarget": 16, "orbitTierTarget": 3, "scoreTarget": 6500, "starThresholds": [60, 84] }
 }

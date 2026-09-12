@@ -11,6 +11,7 @@ import {
   type Vec3Like,
 } from '../world/FaceGraph';
 import type { BreakoutSimulation, PendingEdgeHit } from './BreakoutSimulation';
+import type { FlipRating, GameplayEventBus } from './GameplayEvents';
 
 export type RuntimePhase = 'PLAY_FACE' | 'EDGE_WINDOW' | 'EDGE_RIDE' | 'INSPECT' | 'LIFE_LOST' | 'GAME_OVER' | 'CLEARED';
 
@@ -20,6 +21,7 @@ export interface EdgeRidePresentation {
   readonly sourceBodyPoint: Vec3Like;
   readonly destinationBodyPoint: Vec3Like;
   readonly progress: number;
+  readonly rating: FlipRating;
 }
 
 export interface SpatialPresentationState {
@@ -49,13 +51,35 @@ export class SpatialRuntime {
   private sourceBodyPoint: Vec3Like | null = null;
   private destinationBodyPoint: Vec3Like | null = null;
   private inspectRequested = false;
+  private rideRating: FlipRating = 'normal';
 
-  constructor(private readonly simulation: BreakoutSimulation, private readonly tuning: GameplayTuning) {
+  constructor(
+    private readonly simulation: BreakoutSimulation,
+    private readonly tuning: GameplayTuning,
+    private readonly eventBus: GameplayEventBus,
+  ) {
     this.activeFace = simulation.state.activeFace;
     simulation.setEdgeTransitionsEnabled(true);
   }
 
   requestInspectToggle(): void { this.inspectRequested = true; }
+
+  reset(): void {
+    this.phase = 'PLAY_FACE';
+    this.activeFace = this.simulation.state.activeFace;
+    this.edgeWindowElapsed = 0;
+    this.edgeGestureX = 0;
+    this.edgeGestureY = 0;
+    this.rideElapsed = 0;
+    this.pending = null;
+    this.destinationFace = null;
+    this.destinationPosition = null;
+    this.destinationVelocity = null;
+    this.sourceBodyPoint = null;
+    this.destinationBodyPoint = null;
+    this.inspectRequested = false;
+    this.rideRating = 'normal';
+  }
 
   update(dtSeconds: number, input: InputSnapshot): void {
     if (this.inspectRequested) {
@@ -75,7 +99,7 @@ export class SpatialRuntime {
 
   getPresentationState(): SpatialPresentationState {
     const ride = this.phase === 'EDGE_RIDE' && this.destinationFace && this.sourceBodyPoint && this.destinationBodyPoint
-      ? { sourceFace: this.activeFace, destinationFace: this.destinationFace, sourceBodyPoint: this.sourceBodyPoint, destinationBodyPoint: this.destinationBodyPoint, progress: clamp01(this.rideElapsed / EDGE_RIDE_SECONDS) }
+      ? { sourceFace: this.activeFace, destinationFace: this.destinationFace, sourceBodyPoint: this.sourceBodyPoint, destinationBodyPoint: this.destinationBodyPoint, progress: clamp01(this.rideElapsed / EDGE_RIDE_SECONDS), rating: this.rideRating }
       : null;
     return { phase: this.phase, activeFace: this.activeFace, edgeWindow: this.pending?.edge ?? null, edgeWindowProgress: clamp01(this.edgeWindowElapsed / EDGE_WINDOW_SECONDS), ride };
   }
@@ -104,6 +128,16 @@ export class SpatialRuntime {
     this.edgeGestureY += input.gestureDeltaY;
     if (!this.pending) return void (this.phase = 'PLAY_FACE');
     if (gestureCommitsEdge(this.pending.edge, this.edgeGestureX, this.edgeGestureY)) {
+      const destination = destinationForEdge(this.activeFace, this.pending.edge);
+      this.rideRating = classifyFlip(this.edgeWindowElapsed / EDGE_WINDOW_SECONDS);
+      this.eventBus.emit({ type: 'FlipRated', rating: this.rideRating });
+      this.eventBus.emit({
+        type: 'EdgeCommitted',
+        sourceFace: this.activeFace,
+        destinationFace: destination,
+        edge: this.pending.edge,
+        rating: this.rideRating,
+      });
       this.prepareRide(this.pending);
       this.phase = 'EDGE_RIDE';
       this.rideElapsed = 0;
@@ -137,9 +171,12 @@ export class SpatialRuntime {
     this.rideElapsed += dtSeconds;
     if (this.rideElapsed < EDGE_RIDE_SECONDS) return;
     if (!this.destinationFace || !this.destinationPosition || !this.destinationVelocity) throw new Error('Edge Ride completed without destination state');
+    const previousFace = this.activeFace;
     this.activeFace = this.destinationFace;
     this.simulation.setActiveFace(this.activeFace);
     this.simulation.completePendingEdge(this.destinationPosition, this.destinationVelocity);
+    this.simulation.applyFlipReward(this.rideRating);
+    this.eventBus.emit({ type: 'FaceEntered', face: this.activeFace, previousFace });
     this.pending = null;
     this.destinationFace = null;
     this.destinationPosition = null;
@@ -152,6 +189,11 @@ export class SpatialRuntime {
   }
 }
 
+function classifyFlip(normalizedTime: number): FlipRating {
+  if (normalizedTime >= 0.32 && normalizedTime <= 0.62) return 'perfect';
+  if (normalizedTime >= 0.15 && normalizedTime <= 0.82) return 'good';
+  return 'normal';
+}
 function gestureCommitsEdge(edge: FaceEdge, deltaX: number, deltaY: number): boolean {
   if (edge === 'left') return deltaX <= -SWIPE_THRESHOLD;
   if (edge === 'right') return deltaX >= SWIPE_THRESHOLD;
