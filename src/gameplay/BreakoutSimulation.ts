@@ -1,7 +1,11 @@
 import type { GameplayTuning } from '../core/config';
+import type { LevelDefinition } from '../data/LevelDefinition';
+import { assertValidLevel } from '../data/validateLevel';
 import { expandedAabb, sweepPointAgainstAabb } from '../physics/Sweep';
-import type { FaceEdge } from '../world/FaceGraph';
-import type { BlockState, BreakoutState, Vec2 } from './contracts';
+import { FACE_IDS, type FaceEdge, type FaceId } from '../world/FaceGraph';
+import { createBlockState, forceDestroyBlock, hitBlock } from './BlockRegistry';
+import { DependencyEngine, type DependencyMutation } from './DependencyEngine';
+import type { BlockState, BreakoutState, FaceRuntimeState, Vec2 } from './contracts';
 
 interface CollisionCandidate {
   readonly time: number;
@@ -18,19 +22,47 @@ export interface PendingEdgeHit {
   readonly normal: Vec2;
 }
 
+export interface SimulationNotice {
+  readonly type: 'blockDestroyed' | 'dependencyTriggered' | 'chainTriggered' | 'coreDestroyed';
+  readonly blockId?: string;
+  readonly dependency?: DependencyMutation;
+}
+
 export class BreakoutSimulation {
   readonly state: BreakoutState;
   private pendingPaddleDelta = 0;
   private edgeTransitionsEnabled = false;
   private pendingEdgeHit: PendingEdgeHit | null = null;
   private lifeLostElapsed = 0;
+  private dependencyEngine: DependencyEngine;
+  private readonly notices: SimulationNotice[] = [];
 
-  constructor(private readonly tuning: GameplayTuning) {
+  constructor(
+    private readonly tuning: GameplayTuning,
+    private readonly level: LevelDefinition,
+  ) {
+    assertValidLevel(level);
     this.state = this.createInitialState();
+    this.dependencyEngine = new DependencyEngine(level, this.state);
   }
 
   setEdgeTransitionsEnabled(enabled: boolean): void {
     this.edgeTransitionsEnabled = enabled;
+  }
+
+  setActiveFace(faceId: FaceId): void {
+    this.state.activeFace = faceId;
+    this.state.blocks = this.state.faces[faceId].blocks;
+  }
+
+  isEdgeUnlocked(face: FaceId, edge: FaceEdge): boolean {
+    const config = this.level.edges.find((candidate) => candidate.face === face && candidate.edge === edge);
+    if (!config || config.requiredAnchors.length === 0) return true;
+    return config.requiredAnchors.every((anchorId) => this.findBlock(anchorId)?.destroyed === true);
+  }
+
+  drainNotices(): SimulationNotice[] {
+    return this.notices.splice(0, this.notices.length);
   }
 
   setPaddleInput(pointerDeltaWorld: number, keyboardAxis: -1 | 0 | 1, dtSeconds: number): void {
@@ -59,7 +91,7 @@ export class BreakoutSimulation {
     this.stepBall(dtSeconds);
 
     if (this.state.ball.position.y < -this.state.ball.radius - 0.2) this.loseLife();
-    if (this.state.blocks.every((block) => block.destroyed)) this.state.phase = 'cleared';
+    if (this.findBlock(this.level.objective.blockId)?.destroyed) this.state.phase = 'cleared';
   }
 
   consumePendingEdgeHit(): PendingEdgeHit | null {
@@ -86,6 +118,8 @@ export class BreakoutSimulation {
     Object.assign(this.state, next);
     this.pendingEdgeHit = null;
     this.lifeLostElapsed = 0;
+    this.notices.length = 0;
+    this.dependencyEngine = new DependencyEngine(this.level, this.state);
   }
 
   resumeAfterLifeLoss(): void {
@@ -103,6 +137,9 @@ export class BreakoutSimulation {
       width: this.tuning.paddleWidth,
       height: this.tuning.paddleHeight,
     };
+    const faces = Object.fromEntries(
+      FACE_IDS.map((faceId) => [faceId, { blocks: this.level.blocks.filter((block) => block.face === faceId).map(createBlockState) }]),
+    ) as Record<FaceId, FaceRuntimeState>;
     return {
       ball: {
         position: { x: 0, y: paddle.y + 0.8 },
@@ -111,7 +148,9 @@ export class BreakoutSimulation {
         radius: this.tuning.ballRadius,
       },
       paddle,
-      blocks: createBlocks(),
+      faces,
+      activeFace: this.level.startFace,
+      blocks: faces[this.level.startFace].blocks,
       phase: 'ready',
       lives: this.tuning.lives,
       score: 0,
@@ -178,13 +217,9 @@ export class BreakoutSimulation {
       else reflect(ball.velocity, collision.normal);
 
       if (collision.kind === 'block' && collision.block && !collision.block.destroyed) {
-        collision.block.hitPoints -= 1;
-        if (collision.block.hitPoints <= 0) {
-          collision.block.destroyed = true;
-          this.state.score += 100;
-        } else {
-          this.state.score += 25;
-        }
+        const result = hitBlock(collision.block);
+        this.state.score += result.score;
+        if (result.destroyed) this.onBlockDestroyed(collision.block);
       }
 
       ball.position.x += collision.normal.x * 1e-4;
@@ -206,18 +241,9 @@ export class BreakoutSimulation {
     const halfWidth = this.tuning.fieldWidth / 2;
     const top = this.tuning.fieldHeight;
 
-    if (ball.velocity.x < 0) {
-      const time = (-halfWidth + ball.radius - ball.position.x) / ball.velocity.x;
-      if (time >= 0 && time <= maxTime) best = earlier(best, { time, normal: { x: 1, y: 0 }, kind: this.edgeTransitionsEnabled ? 'edge' : 'wall', edge: 'left' });
-    }
-    if (ball.velocity.x > 0) {
-      const time = (halfWidth - ball.radius - ball.position.x) / ball.velocity.x;
-      if (time >= 0 && time <= maxTime) best = earlier(best, { time, normal: { x: -1, y: 0 }, kind: this.edgeTransitionsEnabled ? 'edge' : 'wall', edge: 'right' });
-    }
-    if (ball.velocity.y > 0) {
-      const time = (top - ball.radius - ball.position.y) / ball.velocity.y;
-      if (time >= 0 && time <= maxTime) best = earlier(best, { time, normal: { x: 0, y: -1 }, kind: this.edgeTransitionsEnabled ? 'edge' : 'wall', edge: 'top' });
-    }
+    if (ball.velocity.x < 0) best = this.edgeOrWall(best, 'left', (-halfWidth + ball.radius - ball.position.x) / ball.velocity.x, { x: 1, y: 0 }, maxTime);
+    if (ball.velocity.x > 0) best = this.edgeOrWall(best, 'right', (halfWidth - ball.radius - ball.position.x) / ball.velocity.x, { x: -1, y: 0 }, maxTime);
+    if (ball.velocity.y > 0) best = this.edgeOrWall(best, 'top', (top - ball.radius - ball.position.y) / ball.velocity.y, { x: 0, y: -1 }, maxTime);
 
     if (ball.velocity.y < 0) {
       const paddleHit = sweepPointAgainstAabb(
@@ -231,16 +257,22 @@ export class BreakoutSimulation {
 
     for (const block of this.state.blocks) {
       if (block.destroyed) continue;
-      const hit = sweepPointAgainstAabb(
-        ball.position,
-        ball.velocity,
-        maxTime,
-        expandedAabb(block.position, block.width, block.height, ball.radius),
-      );
+      const hit = sweepPointAgainstAabb(ball.position, ball.velocity, maxTime, expandedAabb(block.position, block.width, block.height, ball.radius));
       if (hit) best = earlier(best, { ...hit, kind: 'block', block });
     }
-
     return best;
+  }
+
+  private edgeOrWall(
+    best: CollisionCandidate | null,
+    edge: FaceEdge,
+    time: number,
+    normal: Vec2,
+    maxTime: number,
+  ): CollisionCandidate | null {
+    if (time < 0 || time > maxTime) return best;
+    const unlocked = this.edgeTransitionsEnabled && this.isEdgeUnlocked(this.state.activeFace, edge);
+    return earlier(best, { time, normal, kind: unlocked ? 'edge' : 'wall', edge });
   }
 
   private applyPaddleBounce(): void {
@@ -253,6 +285,35 @@ export class BreakoutSimulation {
     ball.velocity.y = Math.abs(vertical * speed);
   }
 
+  private onBlockDestroyed(block: BlockState): void {
+    this.notices.push({ type: 'blockDestroyed', blockId: block.id });
+    for (const mutation of this.dependencyEngine.onBlockDestroyed(block.id)) {
+      this.notices.push({ type: 'dependencyTriggered', dependency: mutation });
+    }
+    if (block.type === 'chain') this.triggerChain(block);
+    if (block.type === 'core') this.notices.push({ type: 'coreDestroyed', blockId: block.id });
+  }
+
+  private triggerChain(source: BlockState): void {
+    this.notices.push({ type: 'chainTriggered', blockId: source.id });
+    const radius = 2.75;
+    for (const target of this.state.faces[source.face].blocks) {
+      if (target.id === source.id || target.destroyed) continue;
+      if (Math.hypot(target.position.x - source.position.x, target.position.y - source.position.y) > radius) continue;
+      if (forceDestroyBlock(target)) {
+        this.state.score += target.scoreValue;
+        this.notices.push({ type: 'blockDestroyed', blockId: target.id });
+        for (const mutation of this.dependencyEngine.onBlockDestroyed(target.id)) {
+          this.notices.push({ type: 'dependencyTriggered', dependency: mutation });
+        }
+      }
+    }
+  }
+
+  private findBlock(id: string): BlockState | undefined {
+    return Object.values(this.state.faces).flatMap((face) => face.blocks).find((block) => block.id === id);
+  }
+
   private loseLife(): void {
     this.state.lives -= 1;
     if (this.state.lives <= 0) {
@@ -261,24 +322,6 @@ export class BreakoutSimulation {
     }
     this.state.phase = 'life-lost';
   }
-}
-
-function createBlocks(): BlockState[] {
-  const blocks: BlockState[] = [];
-  for (let row = 0; row < 4; row += 1) {
-    for (let column = 0; column < 7; column += 1) {
-      blocks.push({
-        id: `normal-${row}-${column}`,
-        position: { x: (column - 3) * 1.8, y: 11 + row * 1.05 },
-        width: 1.55,
-        height: 0.62,
-        hitPoints: 1,
-        maxHitPoints: 1,
-        destroyed: false,
-      });
-    }
-  }
-  return blocks;
 }
 
 function reflect(velocity: Vec2, normal: Vec2): void {
