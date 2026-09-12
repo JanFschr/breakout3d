@@ -5,6 +5,7 @@ import { expandedAabb, sweepPointAgainstAabb } from '../physics/Sweep';
 import { FACE_IDS, type FaceEdge, type FaceId } from '../world/FaceGraph';
 import { createBlockState, forceDestroyBlock, hitBlock } from './BlockRegistry';
 import { DependencyEngine, type DependencyMutation } from './DependencyEngine';
+import type { FlipRating, GameplayEventBus } from './GameplayEvents';
 import type { BlockState, BreakoutState, FaceRuntimeState, Vec2 } from './contracts';
 
 interface CollisionCandidate {
@@ -22,12 +23,6 @@ export interface PendingEdgeHit {
   readonly normal: Vec2;
 }
 
-export interface SimulationNotice {
-  readonly type: 'blockDestroyed' | 'dependencyTriggered' | 'chainTriggered' | 'coreDestroyed';
-  readonly blockId?: string;
-  readonly dependency?: DependencyMutation;
-}
-
 export class BreakoutSimulation {
   readonly state: BreakoutState;
   private pendingPaddleDelta = 0;
@@ -35,11 +30,12 @@ export class BreakoutSimulation {
   private pendingEdgeHit: PendingEdgeHit | null = null;
   private lifeLostElapsed = 0;
   private dependencyEngine: DependencyEngine;
-  private readonly notices: SimulationNotice[] = [];
+  private nextHitDamageMultiplier = 1;
 
   constructor(
     private readonly tuning: GameplayTuning,
     private readonly level: LevelDefinition,
+    private readonly eventBus: GameplayEventBus,
   ) {
     assertValidLevel(level);
     this.state = this.createInitialState();
@@ -61,8 +57,15 @@ export class BreakoutSimulation {
     return config.requiredAnchors.every((anchorId) => this.findBlock(anchorId)?.destroyed === true);
   }
 
-  drainNotices(): SimulationNotice[] {
-    return this.notices.splice(0, this.notices.length);
+  applyFlipReward(rating: FlipRating): void {
+    if (rating === 'normal') return;
+    const speedScale = rating === 'perfect' ? 1.28 : 1.1;
+    const currentSpeed = Math.hypot(this.state.ball.velocity.x, this.state.ball.velocity.y) || 1;
+    const targetSpeed = Math.min(this.tuning.ballMaxSpeed, currentSpeed * speedScale);
+    const scale = targetSpeed / currentSpeed;
+    this.state.ball.velocity.x *= scale;
+    this.state.ball.velocity.y *= scale;
+    this.nextHitDamageMultiplier = rating === 'perfect' ? 2 : 1.25;
   }
 
   setPaddleInput(pointerDeltaWorld: number, keyboardAxis: -1 | 0 | 1, dtSeconds: number): void {
@@ -118,7 +121,7 @@ export class BreakoutSimulation {
     Object.assign(this.state, next);
     this.pendingEdgeHit = null;
     this.lifeLostElapsed = 0;
-    this.notices.length = 0;
+    this.nextHitDamageMultiplier = 1;
     this.dependencyEngine = new DependencyEngine(this.level, this.state);
   }
 
@@ -172,6 +175,7 @@ export class BreakoutSimulation {
     this.state.ball.position = { x: 0, y: this.state.paddle.y + 0.8 };
     this.state.ball.previousPosition = { ...this.state.ball.position };
     this.state.ball.velocity = { x: 0, y: 0 };
+    this.nextHitDamageMultiplier = 1;
   }
 
   private updatePaddle(dtSeconds: number): void {
@@ -217,8 +221,17 @@ export class BreakoutSimulation {
       else reflect(ball.velocity, collision.normal);
 
       if (collision.kind === 'block' && collision.block && !collision.block.destroyed) {
-        const result = hitBlock(collision.block);
+        const multiplier = this.nextHitDamageMultiplier;
+        const result = hitBlock(collision.block, multiplier);
+        if (!result.blocked) this.nextHitDamageMultiplier = 1;
         this.state.score += result.score;
+        this.eventBus.emit({
+          type: 'BlockHit',
+          blockId: collision.block.id,
+          blockType: collision.block.type,
+          points: result.score,
+          destroyed: result.destroyed,
+        });
         if (result.destroyed) this.onBlockDestroyed(collision.block);
       }
 
@@ -286,26 +299,35 @@ export class BreakoutSimulation {
   }
 
   private onBlockDestroyed(block: BlockState): void {
-    this.notices.push({ type: 'blockDestroyed', blockId: block.id });
-    for (const mutation of this.dependencyEngine.onBlockDestroyed(block.id)) {
-      this.notices.push({ type: 'dependencyTriggered', dependency: mutation });
-    }
+    this.eventBus.emit({ type: 'BlockDestroyed', blockId: block.id, blockType: block.type, face: block.face });
+    if (block.type === 'generator') this.eventBus.emit({ type: 'GeneratorDestroyed', blockId: block.id, face: block.face });
     if (block.type === 'chain') this.triggerChain(block);
-    if (block.type === 'core') this.notices.push({ type: 'coreDestroyed', blockId: block.id });
+    if (block.type === 'core') this.eventBus.emit({ type: 'CoreDestroyed', blockId: block.id, face: block.face });
+    this.emitDependencyMutations(this.dependencyEngine.onBlockDestroyed(block.id));
+  }
+
+  private emitDependencyMutations(mutations: DependencyMutation[]): void {
+    for (const mutation of mutations) {
+      this.eventBus.emit({ type: 'DependencyTriggered', mutation });
+      if (mutation.effect.type === 'exposeBlock') {
+        this.eventBus.emit({ type: 'CoreExposed', blockId: mutation.effect.blockId });
+      }
+    }
   }
 
   private triggerChain(source: BlockState): void {
-    this.notices.push({ type: 'chainTriggered', blockId: source.id });
+    this.eventBus.emit({ type: 'ChainTriggered', blockId: source.id, face: source.face });
     const radius = 2.75;
     for (const target of this.state.faces[source.face].blocks) {
       if (target.id === source.id || target.destroyed) continue;
       if (Math.hypot(target.position.x - source.position.x, target.position.y - source.position.y) > radius) continue;
       if (forceDestroyBlock(target)) {
         this.state.score += target.scoreValue;
-        this.notices.push({ type: 'blockDestroyed', blockId: target.id });
-        for (const mutation of this.dependencyEngine.onBlockDestroyed(target.id)) {
-          this.notices.push({ type: 'dependencyTriggered', dependency: mutation });
-        }
+        this.eventBus.emit({ type: 'BlockHit', blockId: target.id, blockType: target.type, points: target.scoreValue, destroyed: true });
+        this.eventBus.emit({ type: 'BlockDestroyed', blockId: target.id, blockType: target.type, face: target.face });
+        if (target.type === 'generator') this.eventBus.emit({ type: 'GeneratorDestroyed', blockId: target.id, face: target.face });
+        if (target.type === 'core') this.eventBus.emit({ type: 'CoreDestroyed', blockId: target.id, face: target.face });
+        this.emitDependencyMutations(this.dependencyEngine.onBlockDestroyed(target.id));
       }
     }
   }
@@ -316,6 +338,7 @@ export class BreakoutSimulation {
 
   private loseLife(): void {
     this.state.lives -= 1;
+    this.eventBus.emit({ type: 'LifeLost', remainingLives: this.state.lives, face: this.state.activeFace });
     if (this.state.lives <= 0) {
       this.state.phase = 'game-over';
       return;
