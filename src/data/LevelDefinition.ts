@@ -1,6 +1,11 @@
-import type { FaceEdge, FaceId } from '../world/FaceGraph';
+import type { BodyType, FaceEdge, FaceId } from '../world/FaceGraph';
 
 export type BlockType = 'normal' | 'armor' | 'anchor' | 'generator' | 'chain' | 'core';
+export interface LevelBodyDefinition {
+  readonly type: BodyType;
+  /** When false, only edges listed in `edges` may trigger an Edge Ride. */
+  readonly implicitTransitions?: boolean;
+}
 export interface LevelFaceDefinition { readonly enabled: boolean; }
 export interface BlockDefinition {
   readonly id: string; readonly type: BlockType; readonly face: FaceId; readonly x: number; readonly y: number;
@@ -24,8 +29,9 @@ export interface LevelDefinition {
   readonly version: 1;
   readonly id: string;
   readonly displayName: string;
+  readonly body: LevelBodyDefinition;
   readonly startFace: FaceId;
-  readonly faces: Record<FaceId, LevelFaceDefinition>;
+  readonly faces: Partial<Record<FaceId, LevelFaceDefinition>>;
   readonly blocks: readonly BlockDefinition[];
   readonly edges: readonly EdgeDefinition[];
   readonly dependencies: readonly DependencyRule[];
