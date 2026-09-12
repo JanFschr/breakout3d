@@ -6,6 +6,7 @@ on:
     types: [completed]
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -26,3 +27,9 @@ jobs:
           pr_number="$(gh pr list --repo "$REPOSITORY" --state open --search "$HEAD_SHA" --json number --jq '.[0].number')"
           test -n "$pr_number"
           gh pr merge "$pr_number" --repo "$REPOSITORY" --squash --delete-branch
+
+      - name: Deploy merged main to GitHub Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: gh workflow run deploy-pages.yml --repo "$REPOSITORY" --ref main
