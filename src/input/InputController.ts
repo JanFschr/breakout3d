@@ -1,43 +1,67 @@
 export interface InputSnapshot {
-  pointerX: number | null;
-  keyboardAxis: -1 | 0 | 1;
+  readonly pointerDeltaPixels: number;
+  readonly keyboardAxis: -1 | 0 | 1;
 }
 
 export class InputController {
-  private pointerX: number | null = null;
+  private pointerActive = false;
+  private lastPointerX: number | null = null;
+  private accumulatedDeltaX = 0;
   private leftDown = false;
   private rightDown = false;
 
   constructor(private readonly target: Window = window) {
+    this.target.addEventListener('pointerdown', this.onPointerDown, { passive: true });
     this.target.addEventListener('pointermove', this.onPointerMove, { passive: true });
+    this.target.addEventListener('pointerup', this.onPointerUp, { passive: true });
+    this.target.addEventListener('pointercancel', this.onPointerUp, { passive: true });
     this.target.addEventListener('keydown', this.onKeyDown);
     this.target.addEventListener('keyup', this.onKeyUp);
   }
 
-  snapshot(): InputSnapshot {
+  consumeSnapshot(): InputSnapshot {
+    const pointerDeltaPixels = this.accumulatedDeltaX;
+    this.accumulatedDeltaX = 0;
     return {
-      pointerX: this.pointerX,
+      pointerDeltaPixels,
       keyboardAxis: this.leftDown === this.rightDown ? 0 : this.leftDown ? -1 : 1,
     };
   }
 
   dispose(): void {
+    this.target.removeEventListener('pointerdown', this.onPointerDown);
     this.target.removeEventListener('pointermove', this.onPointerMove);
+    this.target.removeEventListener('pointerup', this.onPointerUp);
+    this.target.removeEventListener('pointercancel', this.onPointerUp);
     this.target.removeEventListener('keydown', this.onKeyDown);
     this.target.removeEventListener('keyup', this.onKeyUp);
   }
 
+  private readonly onPointerDown = (event: PointerEvent): void => {
+    this.pointerActive = true;
+    this.lastPointerX = event.clientX;
+  };
+
   private readonly onPointerMove = (event: PointerEvent): void => {
-    this.pointerX = event.clientX;
+    const shouldTrack = this.pointerActive || event.pointerType === 'mouse';
+    if (!shouldTrack) return;
+
+    if (this.lastPointerX !== null) this.accumulatedDeltaX += event.clientX - this.lastPointerX;
+    this.lastPointerX = event.clientX;
+  };
+
+  private readonly onPointerUp = (): void => {
+    this.pointerActive = false;
+    this.lastPointerX = null;
   };
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === 'ArrowLeft') this.leftDown = true;
-    if (event.key === 'ArrowRight') this.rightDown = true;
+    if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') this.leftDown = true;
+    if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') this.rightDown = true;
   };
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
-    if (event.key === 'ArrowLeft') this.leftDown = false;
-    if (event.key === 'ArrowRight') this.rightDown = false;
+    if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') this.leftDown = false;
+    if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') this.rightDown = false;
   };
 }
