@@ -34,7 +34,7 @@ jobs:
           ! grep -q '/src/main.ts' dist/index.html
           grep -q '/${{ github.event.repository.name }}/assets/' dist/index.html
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
       - name: Deploy
