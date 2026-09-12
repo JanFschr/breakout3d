@@ -2,6 +2,7 @@ import type { GameplayTuning } from '../core/config';
 import type { LevelDefinition } from '../data/LevelDefinition';
 import { assertValidLevel } from '../data/validateLevel';
 import { expandedAabb, sweepPointAgainstAabb } from '../physics/Sweep';
+import { isTriangularPlayfield, paddleCenterLimit, triangularBoundaryHits } from '../physics/FacePlayfield';
 import { FACE_IDS, type FaceEdge, type FaceId } from '../world/FaceGraph';
 import { createBlockState, forceDestroyBlock, hitBlock } from './BlockRegistry';
 import { DependencyEngine, type DependencyMutation } from './DependencyEngine';
@@ -49,6 +50,7 @@ export class BreakoutSimulation {
   setActiveFace(faceId: FaceId): void {
     this.state.activeFace = faceId;
     this.state.blocks = this.state.faces[faceId].blocks;
+    this.clampPaddleToCurrentFace();
   }
 
   isEdgeUnlocked(face: FaceId, edge: FaceEdge): boolean {
@@ -182,14 +184,31 @@ export class BreakoutSimulation {
   private updatePaddle(dtSeconds: number): void {
     const paddle = this.state.paddle;
     paddle.previousX = paddle.x;
-    const half = paddle.width / 2;
-    paddle.x = clamp(
-      paddle.x + this.pendingPaddleDelta,
-      -this.tuning.fieldWidth / 2 + half,
-      this.tuning.fieldWidth / 2 - half,
+    const limit = paddleCenterLimit(
+      this.level.body.type,
+      this.state.activeFace,
+      this.tuning,
+      paddle.y,
+      paddle.width,
+      paddle.height,
     );
+    paddle.x = clamp(paddle.x + this.pendingPaddleDelta, -limit, limit);
     paddle.velocityX = dtSeconds > 0 ? (paddle.x - paddle.previousX) / dtSeconds : 0;
     this.pendingPaddleDelta = 0;
+  }
+
+  private clampPaddleToCurrentFace(): void {
+    const paddle = this.state.paddle;
+    const limit = paddleCenterLimit(
+      this.level.body.type,
+      this.state.activeFace,
+      this.tuning,
+      paddle.y,
+      paddle.width,
+      paddle.height,
+    );
+    paddle.x = clamp(paddle.x, -limit, limit);
+    paddle.previousX = paddle.x;
   }
 
   private stepBall(dtSeconds: number): void {
@@ -252,12 +271,22 @@ export class BreakoutSimulation {
   private findEarliestCollision(maxTime: number): CollisionCandidate | null {
     const { ball, paddle } = this.state;
     let best: CollisionCandidate | null = null;
-    const halfWidth = this.tuning.fieldWidth / 2;
-    const top = this.tuning.fieldHeight;
+    const triangular = isTriangularPlayfield(this.level.body.type, this.state.activeFace);
 
-    if (ball.velocity.x < 0) best = this.edgeOrWall(best, 'left', (-halfWidth + ball.radius - ball.position.x) / ball.velocity.x, { x: 1, y: 0 }, maxTime);
-    if (ball.velocity.x > 0) best = this.edgeOrWall(best, 'right', (halfWidth - ball.radius - ball.position.x) / ball.velocity.x, { x: -1, y: 0 }, maxTime);
-    if (ball.velocity.y > 0) best = this.edgeOrWall(best, 'top', (top - ball.radius - ball.position.y) / ball.velocity.y, { x: 0, y: -1 }, maxTime);
+    if (triangular) {
+      const sideHits = triangularBoundaryHits(this.tuning, ball.position, ball.velocity, ball.radius, maxTime);
+      if (sideHits.length === 2 && Math.abs(sideHits[0].time - sideHits[1].time) < 1e-5) {
+        best = earlier(best, { time: sideHits[0].time, normal: { x: 0, y: -1 }, kind: 'wall' });
+      } else {
+        for (const hit of sideHits) best = this.edgeOrWall(best, hit.edge, hit.time, hit.normal, maxTime);
+      }
+    } else {
+      const halfWidth = this.tuning.fieldWidth / 2;
+      const top = this.tuning.fieldHeight;
+      if (ball.velocity.x < 0) best = this.edgeOrWall(best, 'left', (-halfWidth + ball.radius - ball.position.x) / ball.velocity.x, { x: 1, y: 0 }, maxTime);
+      if (ball.velocity.x > 0) best = this.edgeOrWall(best, 'right', (halfWidth - ball.radius - ball.position.x) / ball.velocity.x, { x: -1, y: 0 }, maxTime);
+      if (ball.velocity.y > 0) best = this.edgeOrWall(best, 'top', (top - ball.radius - ball.position.y) / ball.velocity.y, { x: 0, y: -1 }, maxTime);
+    }
 
     if (ball.velocity.y < 0) {
       const paddleHit = sweepPointAgainstAabb(
@@ -310,9 +339,7 @@ export class BreakoutSimulation {
   private emitDependencyMutations(mutations: DependencyMutation[]): void {
     for (const mutation of mutations) {
       this.eventBus.emit({ type: 'DependencyTriggered', mutation });
-      if (mutation.effect.type === 'exposeBlock') {
-        this.eventBus.emit({ type: 'CoreExposed', blockId: mutation.effect.blockId });
-      }
+      if (mutation.effect.type === 'exposeBlock') this.eventBus.emit({ type: 'CoreExposed', blockId: mutation.effect.blockId });
     }
   }
 
