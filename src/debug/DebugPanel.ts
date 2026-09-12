@@ -4,6 +4,8 @@ import type { BreakoutSimulation } from '../gameplay/BreakoutSimulation';
 export interface DebugPanelCallbacks {
   readonly onCollisionOverlayChanged: (visible: boolean) => void;
   readonly onRestart: () => void;
+  readonly onQualityCycle: () => void;
+  readonly getQualityLabel: () => string;
 }
 
 export class DebugPanel {
@@ -27,12 +29,13 @@ export class DebugPanel {
     const pauseButton = button('Pause / Resume', () => this.loop.setPaused(!this.loop.isPaused()));
     const stepButton = button('Single step', () => this.loop.singleStep());
     const restartButton = button('Restart', callbacks.onRestart);
+    const qualityButton = button('Cycle quality', callbacks.onQualityCycle);
     const collisionButton = button('Collision overlay', () => {
       this.collisionVisible = !this.collisionVisible;
       callbacks.onCollisionOverlayChanged(this.collisionVisible);
     });
 
-    this.root.append(pauseButton, stepButton, restartButton, collisionButton);
+    this.root.append(pauseButton, stepButton, restartButton, qualityButton, collisionButton);
     document.body.append(this.root);
   }
 
@@ -49,6 +52,7 @@ export class DebugPanel {
     const state = this.simulation.state;
     this.metricsNode.textContent = [
       `fps ${this.fps.toFixed(1)}`,
+      `quality ${this.callbacks.getQualityLabel()}`,
       `steps ${metrics.simulationSteps}`,
       `drop ${(metrics.droppedSimulationSeconds * 1000).toFixed(2)}ms`,
       `phase ${state.phase}`,
