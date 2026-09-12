@@ -8,11 +8,17 @@ import { BreakoutSimulation } from './gameplay/BreakoutSimulation';
 import { GameplayEventBus } from './gameplay/GameplayEvents';
 import { MasterySystem } from './gameplay/MasterySystem';
 import { evaluateStars } from './gameplay/Scoring';
-import { SpatialRuntime } from './gameplay/SpatialRuntime';
+import { SpatialRuntime, type SpatialPresentationState } from './gameplay/SpatialRuntime';
 import { InputController } from './input/InputController';
 import { GameScene } from './rendering/GameScene';
 import { JuiceDirector } from './vfx/JuiceDirector';
 import { VfxDirector } from './vfx/VfxDirector';
+
+const FACE_SIZE = 14;
+const FACE_HALF_SIZE = FACE_SIZE / 2;
+const CUBE_BOUNDING_RADIUS = Math.sqrt(3) * FACE_HALF_SIZE;
+const GAMEPLAY_FRAME_MARGIN = 1.12;
+const WHOLE_BODY_FRAME_MARGIN = 1.08;
 
 const container = document.querySelector<HTMLElement>('#game');
 const status = document.querySelector<HTMLElement>('#status');
@@ -56,6 +62,7 @@ const loop = new GameLoop({
     const juiceSnapshot = juice.getSnapshot();
     vfx.update(frameDeltaSeconds, juiceSnapshot);
     scene.sync(simulation.state, alpha, presentation, juiceSnapshot, frameDeltaSeconds);
+    applyResponsiveCameraFraming(presentation);
     if (collisionOverlayVisible) scene.setDebugCollisionVisible(true, simulation.state);
     scene.render();
     status.textContent = statusText(presentation.edgeWindowProgress);
@@ -89,6 +96,7 @@ window.addEventListener('keydown', (event) => {
   }
 });
 window.addEventListener('resize', () => scene.resize());
+window.addEventListener('orientationchange', () => requestAnimationFrame(() => scene.resize()));
 window.addEventListener('visibilitychange', () => loop.resetClock());
 scene.renderer.setAnimationLoop((timestampMs) => loop.frame(timestampMs));
 
@@ -138,4 +146,46 @@ function statusText(edgeWindowProgress: number): string {
   if (spatial.phase === 'GAME_OVER') return `Game Over · ${masteryState.score} pts`;
   const overdrive = masteryState.fullOrbitActive ? ` · OVERDRIVE ${masteryState.fullOrbitRemaining.toFixed(1)}s` : '';
   return `${spatial.activeFace.toUpperCase()} · ${state.lives} Leben · ${masteryState.score} · Combo ${masteryState.comboStreak} · Orbit ${masteryState.orbitTier}${overdrive}`;
+}
+
+/**
+ * Keep the active square face readable on narrow portrait viewports and pull
+ * farther back whenever the whole cube must remain visible. The original
+ * fixed z=26 camera only works around landscape/desktop aspect ratios.
+ */
+function applyResponsiveCameraFraming(presentation: SpatialPresentationState): void {
+  const camera = scene.camera;
+  const verticalHalfFov = camera.fov * Math.PI / 360;
+  const tanVertical = Math.tan(verticalHalfFov);
+  const tanHorizontal = tanVertical * Math.max(camera.aspect, 0.01);
+
+  const facePlaneDistance = Math.max(
+    FACE_HALF_SIZE / tanVertical,
+    FACE_HALF_SIZE / tanHorizontal,
+  ) * GAMEPLAY_FRAME_MARGIN;
+  const gameplayZ = FACE_HALF_SIZE + facePlaneDistance;
+
+  const limitingHalfAngle = Math.atan(Math.min(tanVertical, tanHorizontal));
+  const wholeBodyZ = CUBE_BOUNDING_RADIUS / Math.max(Math.sin(limitingHalfAngle), 0.01) * WHOLE_BODY_FRAME_MARGIN;
+
+  let targetZ = gameplayZ;
+  if (presentation.phase === 'INSPECT' || presentation.phase === 'RESULTS') {
+    targetZ = wholeBodyZ;
+  } else if (presentation.phase === 'CORE_KILL') {
+    targetZ = wholeBodyZ + Math.sin(presentation.coreKillProgress * Math.PI) * FACE_SIZE * 0.18;
+  } else if (presentation.phase === 'EDGE_RIDE' && presentation.ride) {
+    const reveal = Math.sin(presentation.ride.progress * Math.PI);
+    targetZ = gameplayZ + (wholeBodyZ - gameplayZ) * reveal * 0.72;
+  }
+
+  camera.position.z = targetZ;
+  camera.far = Math.max(180, wholeBodyZ + FACE_SIZE * 4);
+  camera.updateProjectionMatrix();
+  camera.lookAt(0, 0, 0);
+
+  const fog = scene.scene.fog;
+  if (fog && 'near' in fog && 'far' in fog) {
+    fog.near = Math.max(8, targetZ - FACE_SIZE * 0.42);
+    fog.far = targetZ + FACE_SIZE * 2.5;
+  }
 }
