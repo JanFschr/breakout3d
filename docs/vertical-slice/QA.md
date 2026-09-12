@@ -1,1 +1,0 @@
-Automated CI covers lint/build; device feel, touch ergonomics and perceived responsiveness remain manual checks until browser/device test automation is added in Gate F.

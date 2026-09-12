@@ -1,1 +1,0 @@
-Gate A branch is ready for CI review.

@@ -1,1 +1,0 @@
-This marker exists only to indicate the branch reached the PR checkpoint.

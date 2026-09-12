@@ -1,1 +1,0 @@
-Gate A documentation frozen for PR.

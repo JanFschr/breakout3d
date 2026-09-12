@@ -1,20 +1,36 @@
 import type { GameplayTuning } from '../core/config';
 import { expandedAabb, sweepPointAgainstAabb } from '../physics/Sweep';
+import type { FaceEdge } from '../world/FaceGraph';
 import type { BlockState, BreakoutState, Vec2 } from './contracts';
 
 interface CollisionCandidate {
   readonly time: number;
   readonly normal: Vec2;
-  readonly kind: 'wall' | 'paddle' | 'block';
+  readonly kind: 'wall' | 'edge' | 'paddle' | 'block';
+  readonly edge?: FaceEdge;
   readonly block?: BlockState;
+}
+
+export interface PendingEdgeHit {
+  readonly edge: FaceEdge;
+  readonly position: Vec2;
+  readonly velocity: Vec2;
+  readonly normal: Vec2;
 }
 
 export class BreakoutSimulation {
   readonly state: BreakoutState;
   private pendingPaddleDelta = 0;
+  private edgeTransitionsEnabled = false;
+  private pendingEdgeHit: PendingEdgeHit | null = null;
+  private lifeLostElapsed = 0;
 
   constructor(private readonly tuning: GameplayTuning) {
     this.state = this.createInitialState();
+  }
+
+  setEdgeTransitionsEnabled(enabled: boolean): void {
+    this.edgeTransitionsEnabled = enabled;
   }
 
   setPaddleInput(pointerDeltaWorld: number, keyboardAxis: -1 | 0 | 1, dtSeconds: number): void {
@@ -28,7 +44,15 @@ export class BreakoutSimulation {
       this.serveBall();
       return;
     }
-    if (this.state.phase !== 'playing') return;
+    if (this.state.phase === 'life-lost') {
+      this.lifeLostElapsed += dtSeconds;
+      if (this.lifeLostElapsed >= 0.7) {
+        this.lifeLostElapsed = 0;
+        this.resumeAfterLifeLoss();
+      }
+      return;
+    }
+    if (this.state.phase !== 'playing' || this.pendingEdgeHit) return;
 
     this.state.elapsedSeconds += dtSeconds;
     this.state.ball.previousPosition = { ...this.state.ball.position };
@@ -38,9 +62,30 @@ export class BreakoutSimulation {
     if (this.state.blocks.every((block) => block.destroyed)) this.state.phase = 'cleared';
   }
 
+  consumePendingEdgeHit(): PendingEdgeHit | null {
+    return this.pendingEdgeHit;
+  }
+
+  rejectPendingEdge(): void {
+    if (!this.pendingEdgeHit) return;
+    reflect(this.state.ball.velocity, this.pendingEdgeHit.normal);
+    this.state.ball.position.x += this.pendingEdgeHit.normal.x * 1e-3;
+    this.state.ball.position.y += this.pendingEdgeHit.normal.y * 1e-3;
+    this.pendingEdgeHit = null;
+  }
+
+  completePendingEdge(position: Vec2, velocity: Vec2): void {
+    this.state.ball.position = { ...position };
+    this.state.ball.previousPosition = { ...position };
+    this.state.ball.velocity = { ...velocity };
+    this.pendingEdgeHit = null;
+  }
+
   restart(): void {
     const next = this.createInitialState();
     Object.assign(this.state, next);
+    this.pendingEdgeHit = null;
+    this.lifeLostElapsed = 0;
   }
 
   resumeAfterLifeLoss(): void {
@@ -119,6 +164,16 @@ export class BreakoutSimulation {
       ball.position.y += ball.velocity.y * collision.time;
       remaining -= collision.time;
 
+      if (collision.kind === 'edge' && collision.edge) {
+        this.pendingEdgeHit = {
+          edge: collision.edge,
+          position: { ...ball.position },
+          velocity: { ...ball.velocity },
+          normal: collision.normal,
+        };
+        return;
+      }
+
       if (collision.kind === 'paddle') this.applyPaddleBounce();
       else reflect(ball.velocity, collision.normal);
 
@@ -151,20 +206,18 @@ export class BreakoutSimulation {
     const halfWidth = this.tuning.fieldWidth / 2;
     const top = this.tuning.fieldHeight;
 
-    const wallCandidates: CollisionCandidate[] = [];
     if (ball.velocity.x < 0) {
       const time = (-halfWidth + ball.radius - ball.position.x) / ball.velocity.x;
-      if (time >= 0 && time <= maxTime) wallCandidates.push({ time, normal: { x: 1, y: 0 }, kind: 'wall' });
+      if (time >= 0 && time <= maxTime) best = earlier(best, { time, normal: { x: 1, y: 0 }, kind: this.edgeTransitionsEnabled ? 'edge' : 'wall', edge: 'left' });
     }
     if (ball.velocity.x > 0) {
       const time = (halfWidth - ball.radius - ball.position.x) / ball.velocity.x;
-      if (time >= 0 && time <= maxTime) wallCandidates.push({ time, normal: { x: -1, y: 0 }, kind: 'wall' });
+      if (time >= 0 && time <= maxTime) best = earlier(best, { time, normal: { x: -1, y: 0 }, kind: this.edgeTransitionsEnabled ? 'edge' : 'wall', edge: 'right' });
     }
     if (ball.velocity.y > 0) {
       const time = (top - ball.radius - ball.position.y) / ball.velocity.y;
-      if (time >= 0 && time <= maxTime) wallCandidates.push({ time, normal: { x: 0, y: -1 }, kind: 'wall' });
+      if (time >= 0 && time <= maxTime) best = earlier(best, { time, normal: { x: 0, y: -1 }, kind: this.edgeTransitionsEnabled ? 'edge' : 'wall', edge: 'top' });
     }
-    for (const candidate of wallCandidates) best = earlier(best, candidate);
 
     if (ball.velocity.y < 0) {
       const paddleHit = sweepPointAgainstAabb(
@@ -212,8 +265,7 @@ export class BreakoutSimulation {
 
 function createBlocks(): BlockState[] {
   const blocks: BlockState[] = [];
-  const colorsRows = 4;
-  for (let row = 0; row < colorsRows; row += 1) {
+  for (let row = 0; row < 4; row += 1) {
     for (let column = 0; column < 7; column += 1) {
       blocks.push({
         id: `normal-${row}-${column}`,

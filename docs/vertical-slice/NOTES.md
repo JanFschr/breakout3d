@@ -1,1 +1,0 @@
-Implementation notes intentionally stay minimal; issue bodies remain the task-level source of truth.
