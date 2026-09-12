@@ -6,7 +6,7 @@ export class BallTrail {
   readonly object: THREE.Line;
   private readonly positions = new Float32Array(MAX_POINTS * 3);
   private readonly geometry = new THREE.BufferGeometry();
-  private readonly material = new THREE.LineBasicMaterial({ color: 0x6ddcff, transparent: true, opacity: 0.26 });
+  private readonly material = new THREE.LineBasicMaterial({ color: 0x63e6ff, transparent: true, opacity: 0.38 });
   private count = 0;
   private lastPosition = new THREE.Vector3(Number.POSITIVE_INFINITY, 0, 0);
 
@@ -15,16 +15,17 @@ export class BallTrail {
     this.geometry.setDrawRange(0, 0);
     this.object = new THREE.Line(this.geometry, this.material);
     this.object.frustumCulled = false;
+    this.object.renderOrder = 4;
   }
 
   push(position: THREE.Vector3, intensity: number): void {
-    const minDistance = THREE.MathUtils.lerp(0.32, 0.08, intensity);
+    const minDistance = THREE.MathUtils.lerp(0.28, 0.08, intensity);
     if (Number.isFinite(this.lastPosition.x) && this.lastPosition.distanceToSquared(position) < minDistance * minDistance) {
-      this.material.opacity = THREE.MathUtils.lerp(0.18, 0.72, intensity);
+      this.material.opacity = THREE.MathUtils.lerp(0.34, 0.78, intensity);
       return;
     }
 
-    const visiblePoints = Math.max(8, Math.round(THREE.MathUtils.lerp(14, MAX_POINTS, intensity)));
+    const visiblePoints = Math.max(10, Math.round(THREE.MathUtils.lerp(18, MAX_POINTS, intensity)));
     const previousCount = Math.min(this.count, visiblePoints - 1);
     if (previousCount > 0) {
       this.positions.copyWithin(0, 3, previousCount * 3 + 3);
@@ -36,8 +37,8 @@ export class BallTrail {
     this.count = Math.min(previousCount + 1, visiblePoints);
     this.geometry.setDrawRange(0, this.count);
     (this.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
-    this.material.opacity = THREE.MathUtils.lerp(0.18, 0.72, intensity);
-    this.material.color.setHSL(THREE.MathUtils.lerp(0.53, 0.83, intensity), 0.92, 0.7);
+    this.material.opacity = THREE.MathUtils.lerp(0.34, 0.78, intensity);
+    this.material.color.setHSL(THREE.MathUtils.lerp(0.52, 0.78, intensity), 0.96, 0.68);
     this.lastPosition.copy(position);
   }
 
