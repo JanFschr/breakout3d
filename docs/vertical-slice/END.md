@@ -1,0 +1,1 @@
+End of Gate A implementation notes.
