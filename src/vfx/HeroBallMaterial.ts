@@ -37,9 +37,10 @@ export function createHeroBallMaterial(): { material: THREE.ShaderMaterial; unif
 
       void main() {
         vec3 n = normalize(normal);
+        float activeEnergy = smoothstep(0.35, 1.0, uEnergy);
         float wave = sin((n.x * 7.0 + n.y * 9.0 + n.z * 5.0) + uTime * 9.0) * 0.5 + 0.5;
         float magnetic = tendril(n, uDirection) + 0.45 * tendril(n, -uDirection);
-        float deformation = uEnergy * (0.035 + wave * 0.045) + uImpact * magnetic * (0.12 + uEnergy * 0.28);
+        float deformation = activeEnergy * (0.018 + wave * 0.038) + uImpact * magnetic * (0.095 + activeEnergy * 0.24);
         vec3 displaced = position + n * deformation;
         vec4 world = modelMatrix * vec4(displaced, 1.0);
         vPositionW = world.xyz;
@@ -55,15 +56,16 @@ export function createHeroBallMaterial(): { material: THREE.ShaderMaterial; unif
 
       void main() {
         vec3 viewDir = normalize(cameraPosition - vPositionW);
-        float fresnel = pow(1.0 - max(dot(normalize(vNormalW), viewDir), 0.0), 2.2);
-        vec3 core = mix(vec3(0.82, 0.98, 1.0), vec3(0.43, 0.55, 1.0), uEnergy);
-        vec3 rim = mix(vec3(0.2, 0.75, 1.0), vec3(1.0, 0.38, 0.78), uEnergy);
-        vec3 color = core * (1.25 + uImpact * 0.6) + rim * fresnel * (1.4 + uEnergy * 1.6);
-        float alpha = 0.92 + fresnel * 0.08;
-        gl_FragColor = vec4(color, alpha);
+        float fresnel = pow(1.0 - max(dot(normalize(vNormalW), viewDir), 0.0), 2.0);
+        vec3 coldCore = vec3(1.28, 1.48, 1.62);
+        vec3 hotCore = vec3(1.18, 1.28, 1.85);
+        vec3 core = mix(coldCore, hotCore, uEnergy);
+        vec3 rim = mix(vec3(0.18, 0.92, 1.32), vec3(1.28, 0.34, 1.12), uEnergy);
+        vec3 color = core * (1.0 + uImpact * 0.28) + rim * fresnel * (0.78 + uEnergy * 1.15);
+        gl_FragColor = vec4(color, 1.0);
       }
     `,
-    transparent: true,
+    transparent: false,
     depthWrite: true,
     toneMapped: false,
   });
