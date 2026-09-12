@@ -13,6 +13,7 @@ import { InputController } from './input/InputController';
 import { registerServiceWorker } from './pwa/registerServiceWorker';
 import { CameraDirector } from './rendering/CameraDirector';
 import { GameScene } from './rendering/GameScene';
+import { QualityManager } from './rendering/QualityManager';
 import { JuiceDirector } from './vfx/JuiceDirector';
 import { VfxDirector } from './vfx/VfxDirector';
 
@@ -37,6 +38,8 @@ const simulation = new BreakoutSimulation(APP_CONFIG.gameplay, REACTOR_GARDEN_LE
 const mastery = new MasterySystem(REACTOR_GARDEN_LEVEL, eventBus);
 const spatial = new SpatialRuntime(simulation, APP_CONFIG.gameplay, eventBus);
 const scene = new GameScene(container, simulation.state);
+const quality = new QualityManager();
+quality.apply(scene);
 const cameraDirector = new CameraDirector(scene);
 const juice = new JuiceDirector(mastery, eventBus);
 const vfx = new VfxDirector(scene.getBodyRoot(), eventBus, (blockId) => scene.getBlockBodyPosition(blockId));
@@ -59,10 +62,12 @@ const loop = new GameLoop({
   },
   render(alpha, frameDeltaSeconds) {
     const presentation = spatial.getPresentationState();
-    const juiceSnapshot = juice.getSnapshot();
-    vfx.update(frameDeltaSeconds, juiceSnapshot);
-    scene.sync(simulation.state, alpha, presentation, juiceSnapshot, frameDeltaSeconds);
-    cameraDirector.update(presentation, frameDeltaSeconds, juiceSnapshot);
+    const rawJuice = juice.getSnapshot();
+    quality.update(frameDeltaSeconds, scene);
+    const visualJuice = quality.visualJuice(rawJuice);
+    vfx.update(frameDeltaSeconds, visualJuice);
+    scene.sync(simulation.state, alpha, presentation, visualJuice, frameDeltaSeconds);
+    cameraDirector.update(presentation, frameDeltaSeconds, rawJuice);
     if (collisionOverlayVisible) scene.setDebugCollisionVisible(true, simulation.state);
     scene.render();
     status.textContent = statusText(presentation.edgeWindowProgress);
@@ -80,6 +85,15 @@ const debug = new DebugPanel(loop, simulation, {
     scene.setDebugCollisionVisible(visible, simulation.state);
   },
   onRestart: resetRun,
+  onQualityCycle() {
+    quality.cycleOverride(scene);
+    cameraDirector.snap(spatial.getPresentationState());
+  },
+  getQualityLabel() {
+    const metrics = quality.metrics();
+    const source = metrics.override ? 'manual' : 'auto';
+    return `${metrics.tier}/${source} ${metrics.averageFrameMs.toFixed(1)}ms worst ${metrics.worstFrameMs.toFixed(1)}ms`;
+  },
 });
 
 inspectButton.addEventListener('click', () => {
@@ -101,7 +115,7 @@ window.addEventListener('visibilitychange', () => loop.resetClock());
 scene.renderer.setAnimationLoop((timestampMs) => loop.frame(timestampMs));
 
 function handleResize(): void {
-  scene.resize();
+  quality.apply(scene);
   cameraDirector.snap(spatial.getPresentationState());
 }
 
