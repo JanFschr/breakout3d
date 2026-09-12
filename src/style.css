@@ -1,0 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+
+:root { font-family: Inter, system-ui, sans-serif; color: #f8fafc; background: #030712; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; overflow: hidden; }
+main { position: relative; width: 100vw; height: 100vh; }
+#game { width: 100%; height: 100%; }
+canvas { display: block; }
+.hud { position: absolute; z-index: 1; top: clamp(1.5rem, 4vw, 3rem); left: 50%; width: 90%; transform: translateX(-50%); text-align: center; pointer-events: none; }
+h1 { margin: 0; font-size: clamp(2rem, 6vw, 4.5rem); font-weight: 900; letter-spacing: -0.06em; text-shadow: 0 0 35px #38bdf866; }
+h1 span { color: #38bdf8; }
+p { margin: 0.5rem 0; color: #94a3b8; font-size: clamp(0.75rem, 2vw, 1rem); }
