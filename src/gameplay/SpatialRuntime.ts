@@ -3,7 +3,6 @@ import type { InputSnapshot } from '../input/InputController';
 import {
   bodyToLocal,
   destinationForEdge,
-  FACE_GRAPH,
   localToBody,
   reciprocalEdge,
   transferVelocity,
@@ -47,6 +46,8 @@ export class SpatialRuntime {
   phase: RuntimePhase = 'PLAY_FACE';
   activeFace: FaceId = 'front';
   private edgeWindowElapsed = 0;
+  private edgeGestureX = 0;
+  private edgeGestureY = 0;
   private rideElapsed = 0;
   private pending: PendingEdgeHit | null = null;
   private destinationFace: FaceId | null = null;
@@ -75,21 +76,9 @@ export class SpatialRuntime {
     }
 
     if (this.phase === 'INSPECT') return;
-
-    if (this.phase === 'PLAY_FACE') {
-      this.updatePlay(dtSeconds, input);
-      return;
-    }
-
-    if (this.phase === 'EDGE_WINDOW') {
-      this.updateEdgeWindow(dtSeconds, input);
-      return;
-    }
-
-    if (this.phase === 'EDGE_RIDE') {
-      this.updateEdgeRide(dtSeconds);
-      return;
-    }
+    if (this.phase === 'PLAY_FACE') return this.updatePlay(dtSeconds, input);
+    if (this.phase === 'EDGE_WINDOW') return this.updateEdgeWindow(dtSeconds, input);
+    if (this.phase === 'EDGE_RIDE') return this.updateEdgeRide(dtSeconds);
 
     if (this.phase === 'LIFE_LOST') {
       this.simulation.update(dtSeconds);
@@ -134,6 +123,8 @@ export class SpatialRuntime {
     if (hit) {
       this.pending = hit;
       this.edgeWindowElapsed = 0;
+      this.edgeGestureX = 0;
+      this.edgeGestureY = 0;
       this.phase = 'EDGE_WINDOW';
       return;
     }
@@ -145,12 +136,14 @@ export class SpatialRuntime {
 
   private updateEdgeWindow(dtSeconds: number, input: InputSnapshot): void {
     this.edgeWindowElapsed += dtSeconds;
+    this.edgeGestureX += input.gestureDeltaX;
+    this.edgeGestureY += input.gestureDeltaY;
     if (!this.pending) {
       this.phase = 'PLAY_FACE';
       return;
     }
 
-    if (gestureCommitsEdge(this.pending.edge, input)) {
+    if (gestureCommitsEdge(this.pending.edge, this.edgeGestureX, this.edgeGestureY)) {
       this.prepareRide(this.pending);
       this.phase = 'EDGE_RIDE';
       this.rideElapsed = 0;
@@ -209,15 +202,17 @@ export class SpatialRuntime {
     this.destinationVelocity = null;
     this.sourceBodyPoint = null;
     this.destinationBodyPoint = null;
+    this.edgeGestureX = 0;
+    this.edgeGestureY = 0;
     this.phase = 'PLAY_FACE';
   }
 }
 
-function gestureCommitsEdge(edge: FaceEdge, input: InputSnapshot): boolean {
-  if (edge === 'left') return input.gestureDeltaX <= -SWIPE_THRESHOLD;
-  if (edge === 'right') return input.gestureDeltaX >= SWIPE_THRESHOLD;
-  if (edge === 'top') return input.gestureDeltaY <= -SWIPE_THRESHOLD;
-  return input.gestureDeltaY >= SWIPE_THRESHOLD;
+function gestureCommitsEdge(edge: FaceEdge, deltaX: number, deltaY: number): boolean {
+  if (edge === 'left') return deltaX <= -SWIPE_THRESHOLD;
+  if (edge === 'right') return deltaX >= SWIPE_THRESHOLD;
+  if (edge === 'top') return deltaY <= -SWIPE_THRESHOLD;
+  return deltaY >= SWIPE_THRESHOLD;
 }
 
 function nudgeInside(position: { x: number; y: number }, edge: FaceEdge, tuning: GameplayTuning): void {
@@ -231,5 +226,3 @@ function nudgeInside(position: { x: number; y: number }, edge: FaceEdge, tuning:
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
-
-export { FACE_GRAPH };
