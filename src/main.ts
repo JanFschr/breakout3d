@@ -2,7 +2,7 @@ import './style.css';
 import { AudioDirector } from './audio/AudioDirector';
 import { APP_CONFIG } from './core/config';
 import { GameLoop } from './core/GameLoop';
-import { levelFromLocation, levelUrl, nextLevel } from './data/levels';
+import { LEVELS, levelFromLocation, levelUrl, nextLevel } from './data/levels';
 import { DebugPanel } from './debug/DebugPanel';
 import { BreakoutSimulation } from './gameplay/BreakoutSimulation';
 import { GameplayEventBus } from './gameplay/GameplayEvents';
@@ -26,15 +26,20 @@ document.title = `Breakout3D · ${level.displayName}`;
 const container = document.querySelector<HTMLElement>('#game');
 const status = document.querySelector<HTMLElement>('#status');
 const inspectButton = document.querySelector<HTMLButtonElement>('#inspect');
-const soundButton = document.querySelector<HTMLButtonElement>('#sound');
-const hapticsButton = document.querySelector<HTMLButtonElement>('#haptics');
+const settingsOpenButton = document.querySelector<HTMLButtonElement>('#settings-open');
+const settingsPanel = document.querySelector<HTMLElement>('#settings-panel');
+const settingsCloseButton = document.querySelector<HTMLButtonElement>('#settings-close');
+const levelSelect = document.querySelector<HTMLElement>('#level-select');
+const audioButton = document.querySelector<HTMLButtonElement>('#settings-audio');
+const hapticsButton = document.querySelector<HTMLButtonElement>('#settings-haptics');
+const hapticsNote = document.querySelector<HTMLElement>('#haptics-note');
 const results = document.querySelector<HTMLElement>('#results');
 const resultKicker = document.querySelector<HTMLElement>('#result-kicker');
 const resultTitle = document.querySelector<HTMLElement>('#result-title');
 const resultStars = document.querySelector<HTMLElement>('#result-stars');
 const resultDetails = document.querySelector<HTMLElement>('#result-details');
 const retryButton = document.querySelector<HTMLButtonElement>('#retry');
-if (!container || !status || !inspectButton || !soundButton || !hapticsButton || !results || !resultKicker || !resultTitle || !resultStars || !resultDetails || !retryButton) {
+if (!container || !status || !inspectButton || !settingsOpenButton || !settingsPanel || !settingsCloseButton || !levelSelect || !audioButton || !hapticsButton || !hapticsNote || !results || !resultKicker || !resultTitle || !resultStars || !resultDetails || !retryButton) {
   throw new Error('Missing required app container');
 }
 
@@ -53,14 +58,17 @@ const vfx = new VfxDirector(scene.getBodyRoot(), eventBus, (blockId) => scene.ge
 const audio = new AudioDirector(eventBus);
 const input = new InputController();
 let collisionOverlayVisible = false;
+let settingsOpen = false;
 
 audio.arm();
-updateSettingsButtons();
+buildLevelSelect();
+updateSettingsControls();
 cameraDirector.snap(spatial.getPresentationState());
 
 const loop = new GameLoop({
   simulate(dtSeconds) {
     const controls = input.consumeSnapshot();
+    if (settingsOpen) return;
     spatial.update(dtSeconds, controls);
     mastery.update(dtSeconds);
     juice.update(dtSeconds);
@@ -77,10 +85,10 @@ const loop = new GameLoop({
     cameraDirector.update(presentation, frameDeltaSeconds, rawJuice);
     if (collisionOverlayVisible) scene.setDebugCollisionVisible(true, simulation.state);
     scene.render();
-    status.textContent = statusText(presentation.edgeWindowProgress);
+    status.textContent = settingsOpen ? `${level.displayName} · PAUSE` : statusText(presentation.edgeWindowProgress);
     inspectButton.setAttribute('aria-pressed', String(spatial.phase === 'INSPECT'));
     inspectButton.textContent = spatial.phase === 'INSPECT' ? 'Resume' : 'Inspect';
-    inspectButton.disabled = spatial.phase === 'CORE_KILL' || spatial.phase === 'RESULTS' || spatial.phase === 'GAME_OVER';
+    inspectButton.disabled = settingsOpen || spatial.phase === 'CORE_KILL' || spatial.phase === 'RESULTS' || spatial.phase === 'GAME_OVER';
     updateResults();
     debug.update(frameDeltaSeconds, loop.getMetrics());
   },
@@ -107,8 +115,19 @@ inspectButton.addEventListener('click', () => {
   if (spatial.phase === 'INSPECT') scene.resetInspect();
   spatial.requestInspectToggle();
 });
-soundButton.addEventListener('click', () => { audio.toggleEnabled(); updateSettingsButtons(); });
-hapticsButton.addEventListener('click', () => { audio.toggleHaptics(); updateSettingsButtons(); });
+settingsOpenButton.addEventListener('click', () => setSettingsOpen(true));
+settingsCloseButton.addEventListener('click', () => setSettingsOpen(false));
+settingsPanel.addEventListener('click', (event) => {
+  if (event.target === settingsPanel) setSettingsOpen(false);
+});
+audioButton.addEventListener('click', () => {
+  audio.toggleEnabled();
+  updateSettingsControls();
+});
+hapticsButton.addEventListener('click', () => {
+  audio.toggleHaptics();
+  updateSettingsControls();
+});
 retryButton.addEventListener('click', () => {
   if (spatial.phase === 'RESULTS' && followingLevel) {
     window.location.assign(levelUrl(followingLevel));
@@ -117,6 +136,10 @@ retryButton.addEventListener('click', () => {
   resetRun();
 });
 window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && settingsOpen) {
+    setSettingsOpen(false);
+    return;
+  }
   if (event.key.toLowerCase() === 'i' && !inspectButton.disabled) {
     if (spatial.phase === 'INSPECT') scene.resetInspect();
     spatial.requestInspectToggle();
@@ -142,11 +165,43 @@ function resetRun(): void {
   results.hidden = true;
 }
 
-function updateSettingsButtons(): void {
-  soundButton.setAttribute('aria-pressed', String(audio.isEnabled()));
-  soundButton.textContent = audio.isEnabled() ? 'Sound' : 'Muted';
+function setSettingsOpen(open: boolean): void {
+  settingsOpen = open;
+  settingsPanel.hidden = !open;
+  settingsOpenButton.setAttribute('aria-expanded', String(open));
+  if (open) updateSettingsControls();
+  loop.resetClock();
+}
+
+function buildLevelSelect(): void {
+  levelSelect.replaceChildren();
+  LEVELS.forEach((candidate, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('aria-current', String(candidate.id === level.id));
+    const bodyLabel = candidate.body.type === 'pyramid' ? 'Pyramide' : 'Würfel';
+    button.innerHTML = `<strong>Level ${index + 1}</strong><span>${candidate.displayName} · ${bodyLabel}</span>`;
+    button.addEventListener('click', () => {
+      if (candidate.id === level.id) {
+        setSettingsOpen(false);
+        return;
+      }
+      window.location.assign(levelUrl(candidate));
+    });
+    levelSelect.append(button);
+  });
+}
+
+function updateSettingsControls(): void {
+  audioButton.setAttribute('aria-pressed', String(audio.isEnabled()));
+  audioButton.textContent = audio.isEnabled() ? 'An' : 'Aus';
+  const hapticsSupported = audio.supportsHaptics();
+  hapticsButton.disabled = !hapticsSupported;
   hapticsButton.setAttribute('aria-pressed', String(audio.isHapticsEnabled()));
-  hapticsButton.textContent = audio.isHapticsEnabled() ? 'Haptic' : 'No Haptic';
+  hapticsButton.textContent = hapticsSupported ? (audio.isHapticsEnabled() ? 'An' : 'Aus') : '—';
+  hapticsNote.textContent = hapticsSupported
+    ? 'Vibration bei Treffern und Perfect Flips'
+    : 'Auf diesem Browser nicht unterstützt (iPhone Safari bietet keine Web-Vibration)';
 }
 
 function updateResults(): void {
