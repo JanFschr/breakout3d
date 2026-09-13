@@ -166,7 +166,7 @@ export class BreakoutSimulation {
 
   private serveBall(): void {
     const speed = this.tuning.ballBaseSpeed;
-    const direction = normalize({ x: 0.38, y: 1 });
+    const direction = normalize({ x: 0.62, y: 1 });
     this.state.ball.velocity = { x: direction.x * speed, y: direction.y * speed };
     this.state.phase = 'playing';
   }
@@ -322,7 +322,7 @@ export class BreakoutSimulation {
     const { ball, paddle } = this.state;
     const hitOffset = clamp((ball.position.x - paddle.x) / (paddle.width / 2), -1, 1);
     const speed = clamp(Math.hypot(ball.velocity.x, ball.velocity.y) * 1.015, this.tuning.ballBaseSpeed, this.tuning.ballMaxSpeed);
-    const horizontal = clamp(hitOffset * 0.82 + paddle.velocityX * this.tuning.paddleMotionInfluence / speed, -0.92, 0.92);
+    const horizontal = clamp(hitOffset * 0.92 + paddle.velocityX * this.tuning.paddleMotionInfluence / speed, -0.96, 0.96);
     const vertical = Math.sqrt(Math.max(0.08, 1 - horizontal * horizontal));
     ball.velocity.x = horizontal * speed;
     ball.velocity.y = Math.abs(vertical * speed);

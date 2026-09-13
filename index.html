@@ -19,12 +19,45 @@
           <p id="status">Vertical Slice</p>
         </div>
         <div class="hud-actions">
-          <button id="sound" type="button" aria-pressed="true" title="Sound umschalten">Sound</button>
-          <button id="haptics" type="button" aria-pressed="true" title="Haptik umschalten">Haptic</button>
           <button id="inspect" type="button" aria-pressed="false">Inspect</button>
+          <button id="settings-open" type="button" aria-expanded="false" aria-controls="settings-panel">Settings</button>
         </div>
       </div>
       <div id="game" aria-label="3D-Breakout-Spielfeld"></div>
+
+      <section id="settings-panel" class="settings-panel" hidden aria-label="Einstellungen">
+        <div class="settings-sheet">
+          <div class="settings-header">
+            <div>
+              <p class="settings-kicker">BREAKOUT3D</p>
+              <h2>Einstellungen</h2>
+            </div>
+            <button id="settings-close" class="settings-close" type="button" aria-label="Einstellungen schließen">×</button>
+          </div>
+
+          <div class="settings-group">
+            <p class="settings-label">Level</p>
+            <div id="level-select" class="level-select" role="group" aria-label="Level auswählen"></div>
+          </div>
+
+          <div class="settings-row">
+            <div>
+              <strong>Musik &amp; Sound</strong>
+              <span>Adaptive Musik und Treffer-SFX</span>
+            </div>
+            <button id="settings-audio" class="settings-toggle" type="button" aria-pressed="true">An</button>
+          </div>
+
+          <div class="settings-row">
+            <div>
+              <strong>Haptik</strong>
+              <span id="haptics-note">Vibration bei Treffern und Perfect Flips</span>
+            </div>
+            <button id="settings-haptics" class="settings-toggle" type="button" aria-pressed="true">An</button>
+          </div>
+        </div>
+      </section>
+
       <section id="results" class="results-card" hidden aria-live="polite">
         <p id="result-kicker" class="result-kicker">REACTOR GARDEN</p>
         <h2 id="result-title">Complete</h2>

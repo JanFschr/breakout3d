@@ -40,7 +40,7 @@ main { position: relative; background: #050a12; }
 .hud h1 span { color: #8876ff; }
 .hud p {
   margin: 5px 0 0;
-  max-width: min(48vw, 260px);
+  max-width: min(56vw, 360px);
   color: #8fa8bb;
   font-size: clamp(8px, 2.25vw, 11px);
   line-height: 1.2;
@@ -50,12 +50,13 @@ main { position: relative; background: #050a12; }
   white-space: nowrap;
 }
 .hud-actions { display: flex; flex: 0 0 auto; gap: 4px; pointer-events: auto; }
-.hud button {
+.hud button,
+.settings-panel button {
   min-height: 28px;
   border: 1px solid rgb(112 184 225 / 24%);
   border-radius: 999px;
-  padding: 5px 8px;
-  background: rgb(8 21 33 / 72%);
+  padding: 5px 9px;
+  background: rgb(8 21 33 / 78%);
   color: #d8edfa;
   font: inherit;
   font-size: clamp(8px, 2.05vw, 10px);
@@ -64,13 +65,91 @@ main { position: relative; background: #050a12; }
   backdrop-filter: blur(14px) saturate(1.2);
   -webkit-backdrop-filter: blur(14px) saturate(1.2);
 }
-.hud button[aria-pressed="true"] {
-  border-color: rgb(116 209 255 / 36%);
-  background: rgb(11 35 52 / 84%);
+.hud button[aria-pressed="true"],
+.settings-toggle[aria-pressed="true"] {
+  border-color: rgb(116 209 255 / 42%);
+  background: rgb(11 43 60 / 92%);
   color: #f5fbff;
   box-shadow: 0 0 18px rgb(56 175 255 / 12%);
 }
-.hud button:disabled { opacity: .35; }
+.hud button:disabled,
+.settings-panel button:disabled { opacity: .38; }
+
+.settings-panel {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  align-items: end;
+  padding: 14px max(12px, env(safe-area-inset-right)) max(14px, calc(env(safe-area-inset-bottom) + 10px)) max(12px, env(safe-area-inset-left));
+  background: rgb(1 6 12 / 58%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  touch-action: manipulation;
+}
+.settings-panel[hidden] { display: none; }
+.settings-sheet {
+  width: min(100%, 560px);
+  margin: 0 auto;
+  padding: 18px;
+  border: 1px solid rgb(111 188 232 / 22%);
+  border-radius: 24px;
+  background: linear-gradient(155deg, rgb(8 22 35 / 97%), rgb(8 14 26 / 97%));
+  box-shadow: 0 24px 70px rgb(0 0 0 / 48%), inset 0 1px 0 rgb(255 255 255 / 5%);
+}
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.settings-kicker,
+.settings-label {
+  margin: 0;
+  color: #789ab0;
+  font-size: 9px;
+  letter-spacing: .16em;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+.settings-header h2 { margin: 3px 0 0; font-size: 22px; line-height: 1.05; }
+.settings-close { width: 34px; height: 34px; padding: 0 !important; font-size: 20px !important; }
+.settings-group { margin-bottom: 14px; }
+.level-select {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.level-select button {
+  min-height: 48px;
+  border-radius: 15px;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 11px;
+}
+.level-select button strong,
+.level-select button span { display: block; }
+.level-select button span { margin-top: 2px; color: #8099ab; font-size: 9px; font-weight: 650; }
+.level-select button[aria-current="true"] {
+  border-color: rgb(118 137 255 / 58%);
+  background: linear-gradient(135deg, rgb(76 73 193 / 48%), rgb(12 48 70 / 78%));
+  color: white;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 58px;
+  border-top: 1px solid rgb(114 180 215 / 12%);
+}
+.settings-row > div { min-width: 0; }
+.settings-row strong { display: block; font-size: 12px; }
+.settings-row span { display: block; margin-top: 3px; color: #7f98a9; font-size: 9px; line-height: 1.25; }
+.settings-toggle { min-width: 52px; flex: 0 0 auto; }
+.settings-toggle[aria-pressed="false"] { color: #8aa0af; background: rgb(5 14 23 / 84%); }
 
 .results-card {
   position: absolute;
@@ -126,9 +205,17 @@ main { position: relative; background: #050a12; }
 @media (max-width: 430px) {
   .hud { gap: 6px; left: 8px; right: 8px; }
   .hud h1 { font-size: 12px; }
-  .hud p { max-width: 43vw; font-size: 8px; }
+  .hud p { max-width: 58vw; font-size: 8px; }
   .hud-actions { gap: 3px; }
-  .hud-actions button { min-height: 26px; padding: 4px 6px; font-size: 8px; }
+  .hud-actions button { min-height: 26px; padding: 4px 7px; font-size: 8px; }
+  .settings-sheet { padding: 16px; border-radius: 21px; }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .hud { top: max(5px, env(safe-area-inset-top)); }
+  .hud p { margin-top: 3px; }
+  .settings-panel { align-items: center; }
+  .settings-sheet { max-height: calc(100dvh - 20px); overflow: auto; }
 }
 
 @media (max-width: 360px) {
@@ -137,5 +224,5 @@ main { position: relative; background: #050a12; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .results-card { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .results-card, .settings-panel { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }

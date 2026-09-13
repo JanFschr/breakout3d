@@ -5,10 +5,10 @@ import type { GameScene } from './GameScene';
 
 const FACE_SIZE = 14;
 const FACE_HALF_SIZE = FACE_SIZE / 2;
-const GAMEPLAY_WIDTH_FILL = 0.9;
-const TRANSITION_WIDTH_FILL = 0.78;
-const INSPECT_WIDTH_FILL = 0.74;
-const RESULTS_WIDTH_FILL = 0.66;
+const GAMEPLAY_WIDTH_FILL = 0.97;
+const TRANSITION_WIDTH_FILL = 0.82;
+const INSPECT_WIDTH_FILL = 0.76;
+const RESULTS_WIDTH_FILL = 0.68;
 const BODY_HALF_EXTENT = FACE_SIZE * Math.SQRT2 * 0.52;
 const CAMERA_DAMPING = 11;
 
