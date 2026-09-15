@@ -1,6 +1,7 @@
 import type { GameplayTuning } from '../core/config';
 import type { InputSnapshot } from '../input/InputController';
 import { nudgeBallInsidePlayfield } from '../physics/FacePlayfield';
+import { visualYScale } from '../world/BodyMetrics';
 import {
   bodyToLocal,
   destinationForEdge,
@@ -39,7 +40,6 @@ const EDGE_WINDOW_SECONDS = 0.42;
 const EDGE_RIDE_SECONDS = 0.58;
 const CORE_KILL_SECONDS = 3.2;
 const SWIPE_THRESHOLD = 28;
-const FACE_SIZE = 14;
 
 export class SpatialRuntime {
   phase: RuntimePhase = 'PLAY_FACE';
@@ -163,19 +163,36 @@ export class SpatialRuntime {
 
   private prepareRide(hit: PendingEdgeHit): void {
     const destination = destinationForEdge(this.activeFace, hit.edge);
-    const yScale = FACE_SIZE / this.tuning.fieldHeight;
-    const sourceBodyPoint = localToBody(this.activeFace, hit.position.x, (hit.position.y - this.tuning.fieldHeight / 2) * yScale, 0.12);
+    const sourceScale = visualYScale(this.activeFace, this.tuning.fieldHeight);
+    const destinationScale = visualYScale(destination, this.tuning.fieldHeight);
+    const sourceBodyPoint = localToBody(
+      this.activeFace,
+      hit.position.x,
+      (hit.position.y - this.tuning.fieldHeight / 2) * sourceScale,
+      0.12,
+    );
     const destLocal = bodyToLocal(destination, sourceBodyPoint);
     const destEdge = reciprocalEdge(this.activeFace, destination);
-    const position = { x: destLocal.u, y: destLocal.v / yScale + this.tuning.fieldHeight / 2 };
+    const position = {
+      x: destLocal.u,
+      y: destLocal.v / destinationScale + this.tuning.fieldHeight / 2,
+    };
     nudgeBallInsidePlayfield(bodyTypeForFace(destination), destination, destEdge, position, this.tuning);
-    const transferred = transferVelocity(this.activeFace, destination, { x: hit.velocity.x, y: hit.velocity.y * yScale });
-    const velocity = { x: transferred.x, y: transferred.y / yScale };
+    const transferred = transferVelocity(this.activeFace, destination, {
+      x: hit.velocity.x,
+      y: hit.velocity.y * sourceScale,
+    });
+    const velocity = { x: transferred.x, y: transferred.y / destinationScale };
     this.destinationFace = destination;
     this.destinationPosition = position;
     this.destinationVelocity = velocity;
     this.sourceBodyPoint = sourceBodyPoint;
-    this.destinationBodyPoint = localToBody(destination, position.x, (position.y - this.tuning.fieldHeight / 2) * yScale, 0.12);
+    this.destinationBodyPoint = localToBody(
+      destination,
+      position.x,
+      (position.y - this.tuning.fieldHeight / 2) * destinationScale,
+      0.12,
+    );
   }
 
   private updateEdgeRide(dtSeconds: number): void {
