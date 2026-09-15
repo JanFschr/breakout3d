@@ -6,14 +6,23 @@ import { APP_CONFIG } from '../core/config';
 import type { LevelDefinition } from '../data/LevelDefinition';
 import type { SpatialPresentationState } from '../gameplay/SpatialRuntime';
 import type { BlockState, BreakoutState } from '../gameplay/contracts';
+import {
+  BODY_HALF_WIDTH,
+  BODY_WIDTH,
+  CUBE_DEPTH,
+  PORTRAIT_FACE_HEIGHT,
+  PYRAMID_APEX_Y,
+  PYRAMID_BASE_Y,
+  PYRAMID_SIDE_SLANT,
+  visualFaceHeight,
+  visualYScale,
+} from '../world/BodyMetrics';
 import { BODY_FACE_IDS, FACE_GRAPH, localToBody, type FaceBasis, type FaceId, type Vec3Like } from '../world/FaceGraph';
 import { BallTrail } from '../vfx/BallTrail';
 import { EdgeRail } from '../vfx/EdgeRail';
 import { createHeroBallMaterial, type HeroBallUniforms } from '../vfx/HeroBallMaterial';
 import type { JuiceSnapshot } from '../vfx/JuiceDirector';
 
-const FACE_SIZE = 14;
-const Y_SCALE = FACE_SIZE / APP_CONFIG.gameplay.fieldHeight;
 const CUBE_BACKGROUND = new THREE.Color(0x050a12);
 const CUBE_PEAK_BACKGROUND = new THREE.Color(0x160d24);
 const PYRAMID_BACKGROUND = new THREE.Color(0x09080d);
@@ -22,7 +31,7 @@ const GAMEPLAY_TILT = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.035
 
 export class GameScene {
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(38, 1, 0.1, 220);
+  readonly camera = new THREE.PerspectiveCamera(32, 1, 0.1, 260);
   readonly renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
   readonly paddle: THREE.Mesh;
   readonly ball: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
@@ -53,8 +62,8 @@ export class GameScene {
     this.peakBackground = this.warmTheme ? PYRAMID_PEAK_BACKGROUND : CUBE_PEAK_BACKGROUND;
     this.activeFace = state.activeFace;
     this.scene.background = this.backgroundColor.copy(this.baseBackground);
-    this.scene.fog = new THREE.Fog(this.baseBackground, 42, 96);
-    this.camera.position.set(0, 0.7, 26);
+    this.scene.fog = new THREE.Fog(this.baseBackground, 42, 112);
+    this.camera.position.set(0, 0.7, 34);
     this.camera.lookAt(0, 0, 0);
 
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, APP_CONFIG.maxPixelRatio));
@@ -88,7 +97,7 @@ export class GameScene {
     this.buildBodyShell();
 
     this.paddle = new THREE.Mesh(
-      new THREE.BoxGeometry(state.paddle.width, 0.62, Math.max(state.paddle.height * Y_SCALE * 1.65, 0.72)),
+      new THREE.BoxGeometry(state.paddle.width, 0.62, Math.max(state.paddle.height * 1.65, 0.72)),
       new THREE.MeshPhysicalMaterial({
         color: this.warmTheme ? 0xffb44a : 0x596dff,
         emissive: this.warmTheme ? 0xff7a1f : 0x2540ff,
@@ -148,6 +157,7 @@ export class GameScene {
     this.visualTime += Math.min(frameDeltaSeconds, 0.05);
     this.activeFace = spatial.activeFace;
     const activeBasis = FACE_GRAPH[spatial.activeFace];
+    const activeYScale = visualYScale(spatial.activeFace, APP_CONFIG.gameplay.fieldHeight);
     const ballX = lerp(state.ball.previousPosition.x, state.ball.position.x, alpha);
     const ballY = lerp(state.ball.previousPosition.y, state.ball.position.y, alpha);
     const paddleX = lerp(state.paddle.previousX, state.paddle.x, alpha);
@@ -166,10 +176,12 @@ export class GameScene {
     this.ballUniforms.time.value = this.visualTime;
     this.ballUniforms.energy.value = juice.intensity;
     this.ballUniforms.impact.value = juice.eventPulse;
-    this.ballUniforms.direction.value.set(state.ball.velocity.x, 0, -state.ball.velocity.y * Y_SCALE).normalize();
+    this.ballUniforms.direction.value.set(state.ball.velocity.x, 0, -state.ball.velocity.y * activeYScale).normalize();
 
-    if (spatial.phase !== 'EDGE_RIDE') setBodyPosition(this.ball, localToBody(spatial.activeFace, ballX, centeredY(ballY), 0.48));
-    setBodyPosition(this.paddle, localToBody(spatial.activeFace, paddleX, centeredY(state.paddle.y), 0.31));
+    if (spatial.phase !== 'EDGE_RIDE') {
+      setBodyPosition(this.ball, localToBody(spatial.activeFace, ballX, centeredY(ballY, spatial.activeFace), 0.48));
+    }
+    setBodyPosition(this.paddle, localToBody(spatial.activeFace, paddleX, centeredY(state.paddle.y, spatial.activeFace), 0.31));
     this.paddle.quaternion.copy(meshQuaternionForFace(activeBasis));
     this.paddle.rotateZ(THREE.MathUtils.clamp(-state.paddle.velocityX * 0.012, -0.11, 0.11));
     (this.paddle.material as THREE.MeshPhysicalMaterial).emissiveIntensity = THREE.MathUtils.lerp(0.74, 1.28, juice.glow) + juice.eventPulse * 0.18;
@@ -182,7 +194,7 @@ export class GameScene {
         if (!mesh) continue;
         mesh.scale.setScalar(1);
         mesh.visible = !block.destroyed && spatial.phase !== 'RESULTS';
-        setBodyPosition(mesh, localToBody(faceId, block.position.x, centeredY(block.position.y), 0.3));
+        setBodyPosition(mesh, localToBody(faceId, block.position.x, centeredY(block.position.y, faceId), 0.3));
         mesh.quaternion.copy(meshQuaternionForFace(FACE_GRAPH[faceId]));
         updateBlockMaterial(mesh, block, faceId === spatial.activeFace, inspecting, juice, this.warmTheme);
       }
@@ -234,15 +246,16 @@ export class GameScene {
     if (!visible) return;
     const material = new THREE.LineBasicMaterial({ color: 0x44e6ff });
     const basis = FACE_GRAPH[this.activeFace];
+    const activeScale = visualYScale(this.activeFace, APP_CONFIG.gameplay.fieldHeight);
     const addRect = (x: number, y: number, width: number, height: number): void => {
       const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-width / 2, 0, -height * Y_SCALE / 2),
-        new THREE.Vector3(width / 2, 0, -height * Y_SCALE / 2),
-        new THREE.Vector3(width / 2, 0, height * Y_SCALE / 2),
-        new THREE.Vector3(-width / 2, 0, height * Y_SCALE / 2),
+        new THREE.Vector3(-width / 2, 0, -height * activeScale / 2),
+        new THREE.Vector3(width / 2, 0, -height * activeScale / 2),
+        new THREE.Vector3(width / 2, 0, height * activeScale / 2),
+        new THREE.Vector3(-width / 2, 0, height * activeScale / 2),
       ]);
       const line = new THREE.LineLoop(geometry, material);
-      setBodyPosition(line, localToBody(this.activeFace, x, centeredY(y), 0.54));
+      setBodyPosition(line, localToBody(this.activeFace, x, centeredY(y, this.activeFace), 0.54));
       line.quaternion.copy(meshQuaternionForFace(basis));
       this.debugGroup.add(line);
     };
@@ -254,8 +267,9 @@ export class GameScene {
 
   private createBlockMesh(block: BlockState): void {
     const hero = block.type === 'core' || block.type === 'generator';
+    const faceScale = visualYScale(block.face, APP_CONFIG.gameplay.fieldHeight);
     const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(block.width * 0.98, blockThickness(block), Math.max(block.height * Y_SCALE * 1.08, 0.58), 2, 2, 2),
+      new THREE.BoxGeometry(block.width * 0.98, blockThickness(block), Math.max(block.height * faceScale * 1.08, 0.58), 2, 2, 2),
       new THREE.MeshPhysicalMaterial({
         color: blockColor(block, this.warmTheme),
         roughness: hero ? 0.11 : 0.2,
@@ -282,26 +296,29 @@ export class GameScene {
   }
 
   private buildCubeShell(): void {
-    for (const faceId of this.faceIds) this.addFacePanel(faceId, new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE, 20, 20));
+    for (const faceId of this.faceIds) {
+      this.addFacePanel(faceId, new THREE.PlaneGeometry(BODY_WIDTH, visualFaceHeight(faceId), 20, 28));
+    }
     this.bodyRoot.add(new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(FACE_SIZE, FACE_SIZE, FACE_SIZE)),
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(BODY_WIDTH, PORTRAIT_FACE_HEIGHT, CUBE_DEPTH)),
       new THREE.LineBasicMaterial({ color: 0x2a6f88, transparent: true, opacity: 0.52 }),
     ));
   }
 
   private buildPyramidShell(): void {
-    const slant = Math.hypot(12, 7);
     for (const faceId of this.faceIds) {
       const geometry = faceId === 'base'
-        ? new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE, 16, 16)
-        : triangleGeometry(FACE_SIZE, slant);
+        ? new THREE.PlaneGeometry(BODY_WIDTH, BODY_WIDTH, 16, 16)
+        : triangleGeometry(BODY_WIDTH, PYRAMID_SIDE_SLANT);
       this.addFacePanel(faceId, geometry);
     }
 
-    const apex = new THREE.Vector3(0, 7, 0);
+    const apex = new THREE.Vector3(0, PYRAMID_APEX_Y, 0);
     const corners = [
-      new THREE.Vector3(-7, -5, -7), new THREE.Vector3(7, -5, -7),
-      new THREE.Vector3(7, -5, 7), new THREE.Vector3(-7, -5, 7),
+      new THREE.Vector3(-BODY_HALF_WIDTH, PYRAMID_BASE_Y, -BODY_HALF_WIDTH),
+      new THREE.Vector3(BODY_HALF_WIDTH, PYRAMID_BASE_Y, -BODY_HALF_WIDTH),
+      new THREE.Vector3(BODY_HALF_WIDTH, PYRAMID_BASE_Y, BODY_HALF_WIDTH),
+      new THREE.Vector3(-BODY_HALF_WIDTH, PYRAMID_BASE_Y, BODY_HALF_WIDTH),
     ];
     const edgePoints: THREE.Vector3[] = [];
     for (let i = 0; i < corners.length; i += 1) {
@@ -446,7 +463,9 @@ function blockEmissiveIntensity(block: BlockState): number {
   return 0.62;
 }
 function blockThickness(block: BlockState): number { return block.type === 'core' ? 0.95 : block.type === 'generator' ? 0.76 : 0.54; }
-function centeredY(gameplayY: number): number { return (gameplayY - APP_CONFIG.gameplay.fieldHeight / 2) * Y_SCALE; }
+function centeredY(gameplayY: number, faceId: FaceId): number {
+  return (gameplayY - APP_CONFIG.gameplay.fieldHeight / 2) * visualYScale(faceId, APP_CONFIG.gameplay.fieldHeight);
+}
 function setBodyPosition(object: THREE.Object3D, value: Vec3Like): void { object.position.set(value.x, value.y, value.z); }
 function vec3(value: Vec3Like): THREE.Vector3 { return new THREE.Vector3(value.x, value.y, value.z); }
 function panelQuaternionForFace(basis: FaceBasis): THREE.Quaternion { return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(vec3(basis.u), vec3(basis.v), vec3(basis.normal))); }
