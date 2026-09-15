@@ -3,7 +3,7 @@ import { BODY_FACE_IDS, FACE_GRAPH, type FaceEdge, type FaceId } from '../world/
 import type { LevelDefinition } from './LevelDefinition';
 
 const PLAYABLE_TRANSITION_EDGES: readonly FaceEdge[] = ['left', 'right', 'top'];
-const PLAYFIELD = { fieldWidth: 14, fieldHeight: 18 } as const;
+const PLAYFIELD = { fieldWidth: 14, fieldHeight: 22 } as const;
 export interface LevelValidationResult { readonly valid: boolean; readonly errors: readonly string[]; }
 
 export function validateLevel(level: LevelDefinition): LevelValidationResult {
@@ -26,7 +26,7 @@ export function validateLevel(level: LevelDefinition): LevelValidationResult {
     if (!level.faces[block.face]?.enabled) errors.push(`block ${block.id} references disabled face ${block.face}`);
     if (block.width <= 0 || block.height <= 0) errors.push(`block ${block.id} must have positive dimensions`);
     if (block.hitPoints <= 0) errors.push(`block ${block.id} must have positive hitPoints`);
-    if (Math.abs(block.x) > 7.1 || block.y < 0 || block.y > 18) errors.push(`block ${block.id} is outside playable bounds`);
+    if (Math.abs(block.x) > 7.1 || block.y < 0 || block.y > PLAYFIELD.fieldHeight) errors.push(`block ${block.id} is outside playable bounds`);
     if (isTriangularPlayfield(level.body.type, block.face)
       && !blockFitsTriangularFace(PLAYFIELD, block.x, block.y, block.width, block.height)) {
       errors.push(`block ${block.id} does not fit inside triangular face ${block.face}`);
