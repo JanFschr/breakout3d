@@ -1,15 +1,16 @@
 import * as THREE from 'three';
 import type { SpatialPresentationState } from '../gameplay/SpatialRuntime';
+import { BODY_WIDTH, PORTRAIT_FACE_HEIGHT, visualFaceHeight } from '../world/BodyMetrics';
+import { FACE_GRAPH, type FaceId } from '../world/FaceGraph';
 import type { JuiceSnapshot } from '../vfx/JuiceDirector';
 import type { GameScene } from './GameScene';
 
-const FACE_SIZE = 14;
-const FACE_HALF_SIZE = FACE_SIZE / 2;
 const GAMEPLAY_WIDTH_FILL = 0.94;
+const GAMEPLAY_HEIGHT_FILL = 0.8;
 const TRANSITION_WIDTH_FILL = 0.8;
 const INSPECT_WIDTH_FILL = 0.74;
 const RESULTS_WIDTH_FILL = 0.66;
-const BODY_HALF_EXTENT = FACE_SIZE * Math.SQRT2 * 0.52;
+const BODY_HALF_EXTENT = 15.5;
 const CAMERA_DAMPING = 11;
 
 /**
@@ -40,11 +41,18 @@ export class CameraDirector {
     juice: JuiceSnapshot | null,
   ): void {
     const camera = this.gameScene.camera;
-    const tanVertical = Math.tan(camera.fov * Math.PI / 360);
-    const tanHorizontal = tanVertical * Math.max(camera.aspect, 0.01);
+    const tanVertical = Math.max(Math.tan(camera.fov * Math.PI / 360), 0.01);
+    const tanHorizontal = Math.max(tanVertical * Math.max(camera.aspect, 0.01), 0.01);
     const limitingTan = Math.max(Math.min(tanVertical, tanHorizontal), 0.01);
 
-    const gameplayZ = FACE_HALF_SIZE + FACE_HALF_SIZE / (limitingTan * GAMEPLAY_WIDTH_FILL);
+    const faceHalfWidth = BODY_WIDTH / 2;
+    const faceHalfHeight = visualFaceHeight(presentation.activeFace) / 2;
+    const surfaceDistance = faceSurfaceDistance(presentation.activeFace);
+    const gameplayFromSurface = Math.max(
+      faceHalfWidth / (tanHorizontal * GAMEPLAY_WIDTH_FILL),
+      faceHalfHeight / (tanVertical * GAMEPLAY_HEIGHT_FILL),
+    );
+    const gameplayZ = surfaceDistance + gameplayFromSurface;
     const transitionZ = BODY_HALF_EXTENT / (limitingTan * TRANSITION_WIDTH_FILL);
     const inspectZ = BODY_HALF_EXTENT / (limitingTan * INSPECT_WIDTH_FILL);
     const resultsZ = BODY_HALF_EXTENT / (limitingTan * RESULTS_WIDTH_FILL);
@@ -61,7 +69,7 @@ export class CameraDirector {
       targetY = 0.3;
     } else if (presentation.phase === 'CORE_KILL') {
       const pulse = Math.sin(presentation.coreKillProgress * Math.PI);
-      targetZ = THREE.MathUtils.lerp(inspectZ, resultsZ, 0.35) + pulse * FACE_SIZE * 0.18;
+      targetZ = THREE.MathUtils.lerp(inspectZ, resultsZ, 0.35) + pulse * BODY_WIDTH * 0.18;
       targetY = 0.2 + Math.sin(presentation.coreKillProgress * Math.PI * 2) * 0.35;
     } else if (presentation.phase === 'EDGE_RIDE' && presentation.ride) {
       const reveal = Math.sin(presentation.ride.progress * Math.PI);
@@ -85,14 +93,23 @@ export class CameraDirector {
       camera.position.z = THREE.MathUtils.damp(camera.position.z, targetZ, CAMERA_DAMPING, dtSeconds);
     }
 
-    camera.far = Math.max(220, resultsZ + FACE_SIZE * 5);
+    camera.far = Math.max(260, resultsZ + PORTRAIT_FACE_HEIGHT * 4);
     camera.updateProjectionMatrix();
     camera.lookAt(this.lookTarget);
 
     const fog = this.gameScene.scene.fog;
     if (fog instanceof THREE.Fog) {
-      fog.near = Math.max(18, camera.position.z - FACE_SIZE * 0.8);
-      fog.far = camera.position.z + FACE_SIZE * 3.5;
+      fog.near = Math.max(20, camera.position.z - PORTRAIT_FACE_HEIGHT * 0.6);
+      fog.far = camera.position.z + PORTRAIT_FACE_HEIGHT * 2.8;
     }
   }
+}
+
+function faceSurfaceDistance(faceId: FaceId): number {
+  const basis = FACE_GRAPH[faceId];
+  return Math.abs(
+    basis.origin.x * basis.normal.x
+      + basis.origin.y * basis.normal.y
+      + basis.origin.z * basis.normal.z,
+  );
 }
