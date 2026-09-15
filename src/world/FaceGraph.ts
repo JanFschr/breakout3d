@@ -1,3 +1,15 @@
+import {
+  BODY_HALF_WIDTH,
+  CUBE_HALF_DEPTH,
+  PORTRAIT_FACE_HALF_HEIGHT,
+  PYRAMID_APEX_Y,
+  PYRAMID_BASE_Y,
+  PYRAMID_MID_INSET,
+  PYRAMID_MID_Y,
+  PYRAMID_RISE,
+  PYRAMID_SIDE_SLANT,
+} from './BodyMetrics';
+
 export type BodyType = 'cube' | 'pyramid';
 export type CubeFaceId = 'front' | 'right' | 'back' | 'left' | 'top' | 'bottom';
 export type PyramidFaceId = 'base' | 'north' | 'east' | 'south' | 'west';
@@ -26,15 +38,9 @@ export interface LocalPoint {
   normal: number;
 }
 
-const HALF_SIZE = 7;
-const PYRAMID_BASE_Y = -5;
-const PYRAMID_APEX_Y = 7;
-const PYRAMID_MID_Y = (PYRAMID_BASE_Y + PYRAMID_APEX_Y) / 2;
-const PYRAMID_MID_INSET = HALF_SIZE / 2;
-const PYRAMID_RISE = PYRAMID_APEX_Y - PYRAMID_BASE_Y;
-const PYRAMID_SLANT = Math.hypot(PYRAMID_RISE, HALF_SIZE);
+const PYRAMID_SLANT = PYRAMID_SIDE_SLANT;
 const SLOPE_UP = PYRAMID_RISE / PYRAMID_SLANT;
-const SLOPE_IN = HALF_SIZE / PYRAMID_SLANT;
+const SLOPE_IN = BODY_HALF_WIDTH / PYRAMID_SLANT;
 
 export const CUBE_FACE_IDS: readonly CubeFaceId[] = ['front', 'right', 'back', 'left', 'top', 'bottom'];
 export const PYRAMID_FACE_IDS: readonly PyramidFaceId[] = ['base', 'north', 'east', 'south', 'west'];
@@ -45,28 +51,28 @@ export const BODY_FACE_IDS: Record<BodyType, readonly FaceId[]> = {
   pyramid: PYRAMID_FACE_IDS,
 };
 
-const northWestAxis = normalize(vec(7, PYRAMID_RISE, -7));
-const northEastAxis = normalize(vec(-7, PYRAMID_RISE, -7));
-const southEastAxis = normalize(vec(-7, PYRAMID_RISE, 7));
-const southWestAxis = normalize(vec(7, PYRAMID_RISE, 7));
+const northWestAxis = normalize(vec(BODY_HALF_WIDTH, PYRAMID_RISE, -BODY_HALF_WIDTH));
+const northEastAxis = normalize(vec(-BODY_HALF_WIDTH, PYRAMID_RISE, -BODY_HALF_WIDTH));
+const southEastAxis = normalize(vec(-BODY_HALF_WIDTH, PYRAMID_RISE, BODY_HALF_WIDTH));
+const southWestAxis = normalize(vec(BODY_HALF_WIDTH, PYRAMID_RISE, BODY_HALF_WIDTH));
 
 export const FACE_GRAPH: Record<FaceId, FaceBasis> = {
-  front: face('front', vec(0, 0, HALF_SIZE), vec(1, 0, 0), vec(0, 1, 0), vec(0, 0, 1), {
+  front: face('front', vec(0, 0, CUBE_HALF_DEPTH), vec(1, 0, 0), vec(0, 1, 0), vec(0, 0, 1), {
     left: 'left', right: 'right', top: 'top', bottom: 'bottom',
   }),
-  right: face('right', vec(HALF_SIZE, 0, 0), vec(0, 0, -1), vec(0, 1, 0), vec(1, 0, 0), {
+  right: face('right', vec(BODY_HALF_WIDTH, 0, 0), vec(0, 0, -1), vec(0, 1, 0), vec(1, 0, 0), {
     left: 'front', right: 'back', top: 'top', bottom: 'bottom',
   }),
-  back: face('back', vec(0, 0, -HALF_SIZE), vec(-1, 0, 0), vec(0, 1, 0), vec(0, 0, -1), {
+  back: face('back', vec(0, 0, -CUBE_HALF_DEPTH), vec(-1, 0, 0), vec(0, 1, 0), vec(0, 0, -1), {
     left: 'right', right: 'left', top: 'top', bottom: 'bottom',
   }),
-  left: face('left', vec(-HALF_SIZE, 0, 0), vec(0, 0, 1), vec(0, 1, 0), vec(-1, 0, 0), {
+  left: face('left', vec(-BODY_HALF_WIDTH, 0, 0), vec(0, 0, 1), vec(0, 1, 0), vec(-1, 0, 0), {
     left: 'back', right: 'front', top: 'top', bottom: 'bottom',
   }),
-  top: face('top', vec(0, HALF_SIZE, 0), vec(1, 0, 0), vec(0, 0, -1), vec(0, 1, 0), {
+  top: face('top', vec(0, PORTRAIT_FACE_HALF_HEIGHT, 0), vec(1, 0, 0), vec(0, 0, -1), vec(0, 1, 0), {
     left: 'left', right: 'right', top: 'back', bottom: 'front',
   }),
-  bottom: face('bottom', vec(0, -HALF_SIZE, 0), vec(1, 0, 0), vec(0, 0, 1), vec(0, -1, 0), {
+  bottom: face('bottom', vec(0, -PORTRAIT_FACE_HALF_HEIGHT, 0), vec(1, 0, 0), vec(0, 0, 1), vec(0, -1, 0), {
     left: 'left', right: 'right', top: 'front', bottom: 'back',
   }),
   base: face('base', vec(0, PYRAMID_BASE_Y, 0), vec(1, 0, 0), vec(0, 0, 1), vec(0, -1, 0), {
