@@ -75,7 +75,7 @@ export const SUN_SPIRE_LEVEL = {
   id: 'pyramid-01-sun-spire',
   displayName: 'Sun Spire',
   body: { type: 'pyramid', implicitTransitions: false },
-  startFace: 'base',
+  startFace: 'north',
   faces: {
     base: { enabled: true }, north: { enabled: true }, east: { enabled: true },
     south: { enabled: true }, west: { enabled: true },
@@ -84,6 +84,7 @@ export const SUN_SPIRE_LEVEL = {
   edges: [
     { face: 'base', edge: 'top', requiredAnchors: ['anchor-base-north'] },
     { face: 'base', edge: 'right', requiredAnchors: ['anchor-base-east'] },
+    { face: 'north', edge: 'bottom', requiredAnchors: [] },
     { face: 'north', edge: 'right', requiredAnchors: ['sun-lock-north'] },
     { face: 'east', edge: 'left', requiredAnchors: [] },
     { face: 'east', edge: 'right', requiredAnchors: ['anchor-east-south'] },
