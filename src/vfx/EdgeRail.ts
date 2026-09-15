@@ -1,8 +1,8 @@
 import * as THREE from 'three';
+import { BODY_HALF_WIDTH, visualFaceHeight } from '../world/BodyMetrics';
 import { localToBody, type FaceEdge, type FaceId, type Vec3Like } from '../world/FaceGraph';
 import type { JuiceSnapshot } from './JuiceDirector';
 
-const FACE_HALF = 7;
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const CYAN = new THREE.Color(0x35d9ff);
 const GOLD = new THREE.Color(0xffd85a);
@@ -113,16 +113,17 @@ export class EdgeRail {
 }
 
 function edgePoints(faceId: FaceId, edge: FaceEdge): [[number, number], [number, number]] {
+  const halfHeight = visualFaceHeight(faceId) / 2;
   if (isPyramidSide(faceId)) {
-    if (edge === 'left') return [[-FACE_HALF, -FACE_HALF], [0, FACE_HALF]];
-    if (edge === 'right') return [[FACE_HALF, -FACE_HALF], [0, FACE_HALF]];
-    if (edge === 'bottom') return [[-FACE_HALF, -FACE_HALF], [FACE_HALF, -FACE_HALF]];
-    return [[0, FACE_HALF], [0, FACE_HALF]];
+    if (edge === 'left') return [[-BODY_HALF_WIDTH, -halfHeight], [0, halfHeight]];
+    if (edge === 'right') return [[BODY_HALF_WIDTH, -halfHeight], [0, halfHeight]];
+    if (edge === 'bottom') return [[-BODY_HALF_WIDTH, -halfHeight], [BODY_HALF_WIDTH, -halfHeight]];
+    return [[0, halfHeight], [0, halfHeight]];
   }
-  if (edge === 'left') return [[-FACE_HALF, -FACE_HALF], [-FACE_HALF, FACE_HALF]];
-  if (edge === 'right') return [[FACE_HALF, -FACE_HALF], [FACE_HALF, FACE_HALF]];
-  if (edge === 'top') return [[-FACE_HALF, FACE_HALF], [FACE_HALF, FACE_HALF]];
-  return [[-FACE_HALF, -FACE_HALF], [FACE_HALF, -FACE_HALF]];
+  if (edge === 'left') return [[-BODY_HALF_WIDTH, -halfHeight], [-BODY_HALF_WIDTH, halfHeight]];
+  if (edge === 'right') return [[BODY_HALF_WIDTH, -halfHeight], [BODY_HALF_WIDTH, halfHeight]];
+  if (edge === 'top') return [[-BODY_HALF_WIDTH, halfHeight], [BODY_HALF_WIDTH, halfHeight]];
+  return [[-BODY_HALF_WIDTH, -halfHeight], [BODY_HALF_WIDTH, -halfHeight]];
 }
 
 function isPyramidSide(faceId: FaceId): boolean {
